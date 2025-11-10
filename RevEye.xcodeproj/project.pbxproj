@@ -400,7 +400,9 @@
 				DEVELOPMENT_TEAM = ZFF9A28HHL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "$(PRODUCT_NAME) Needs access to your camera to take photos or videos of cars for recognition and collection.\n";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "$(PRODUCT_BUNDLE_IDENTIFIER) Needs access to your camera to view photos or videos of cars for recognition and collection.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -433,7 +435,9 @@
 				DEVELOPMENT_TEAM = ZFF9A28HHL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "$(PRODUCT_NAME) Needs access to your camera to take photos or videos of cars for recognition and collection.\n";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "$(PRODUCT_BUNDLE_IDENTIFIER) Needs access to your camera to view photos or videos of cars for recognition and collection.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
