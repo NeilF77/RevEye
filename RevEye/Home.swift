@@ -5,15 +5,20 @@
 //  Created by user on 10/11/2025.
 //
 import SwiftUI
+import PhotosUI
 
 struct HomeView: View {
+    
+    @State private var selectedItem: PhotosPickerItem? = nil
+    @State private var selectedImageData: Data? = nil
+    
     var body: some View {
         NavigationView {
             VStack(spacing: 40) {
                 Text("RevEye")
                     .font(.largeTitle)
                     .fontWeight(.bold)
-
+                
                 // Camera Button
                 Button(action: {
                     print("Camera button tapped")
@@ -26,31 +31,46 @@ struct HomeView: View {
                         .foregroundColor(.white)
                         .cornerRadius(12)
                 }
-
+                
                 // Gallery Button
-                Button(action: {
-                    print("Select Photo button tapped")
-                }) {
-                    Text("Select Photo")
-                        .font(.title2)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
+                PhotosPicker(selection: $selectedItem, matching: .images) {
+                        Text("Select Photo")
+                            .font(.title2)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                    }
+                    
+                    if let selectedImageData,
+                       let uiImage = UIImage(data: selectedImageData) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: 250)
+                            .cornerRadius(10)
+                            .padding(.top, 20)
+                    }
+                    
+                    Spacer()
                 }
-
-                Spacer()
+                .padding()
+                .onChange(of: selectedItem) { newItem in
+                    loadImage(from: newItem)
+                }
             }
-            .padding()
+        }
+        
+        private func loadImage(from item: PhotosPickerItem?) {
+            guard let item = item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    await MainActor.run {
+                        selectedImageData = data
+                    }
+                }
+            }
         }
     }
-}
-
-struct HomeView_Previews: PreviewProvider {
-    static var previews: some View {
-        HomeView()
-    }
-}
-
 
