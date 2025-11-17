@@ -9,8 +9,12 @@ import PhotosUI
 
 struct HomeView: View {
     
+    @State private var selectedVideoURL: URL?
+    @State private var showVideoPicker = false
     @State private var selectedItem: PhotosPickerItem? = nil
     @State private var selectedImageData: Data? = nil
+
+
     
     var body: some View {
         NavigationView {
@@ -42,7 +46,17 @@ struct HomeView: View {
                             .foregroundColor(.white)
                             .cornerRadius(12)
                     }
-                    
+                
+                Button("Upload Video") {
+                    showVideoPicker = true
+                }
+                .sheet(isPresented: $showVideoPicker) {
+                    VideoPicker { url in
+                        self.selectedVideoURL = url
+                        print("Video selected at URL: \(url)")
+                    }
+                }
+
                     if let selectedImageData,
                        let uiImage = UIImage(data: selectedImageData) {
                         Image(uiImage: uiImage)
