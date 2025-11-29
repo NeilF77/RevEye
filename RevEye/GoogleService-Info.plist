@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyBfcrn8WdbOcn4LMdd3H1Gngxt4H4_HpDo</string>
+	<key>GCM_SENDER_ID</key>
+	<string>284328471634</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.neil.RevEye</string>
+	<key>PROJECT_ID</key>
+	<string>reveye-17c5a</string>
+	<key>STORAGE_BUCKET</key>
+	<string>reveye-17c5a.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:284328471634:ios:5a5647f35ac295e90d838b</string>
+</dict>
+</plist>
