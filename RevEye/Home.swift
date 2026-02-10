@@ -4,6 +4,7 @@
 //
 //  Created by user on 10/11/2025.
 //
+
 import SwiftUI
 import PhotosUI
 import UIKit
@@ -34,6 +35,9 @@ struct HomeView: View {
     /// The car classification engine that processes images
     @StateObject private var classifier = CarClassifier()
     
+    /// Status message shown to the user (e.g. errors, confirmations)
+    @State private var statusMessage: String? = nil
+    
     // reference to SQLite manager
     private let db = DatabaseManager.shared
     
@@ -41,128 +45,142 @@ struct HomeView: View {
     
     var body: some View {
         NavigationView {
-            VStack(spacing: 40) {
-                // App title
-                Text("RevEye")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                
-                // MARK: - Camera Button
-                // Opens the device camera to take a photo
-                Button(action: {
-                    print("Camera button tapped")
-                    showCamera = true
-                }) {
-                    Text("Take Photo")
-                        .font(.title2)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
-                }
-                .sheet(isPresented: $showCamera) {
-                    // Custom ImagePicker for camera capture
-                    ImagePicker(sourceType: .camera) { uiImage in
-                        // Convert captured image to JPEG data and store it
-                        if let data = uiImage.jpegData(compressionQuality: 0.9) {
-                            selectedImageData = data
+            ScrollView {
+                VStack(spacing: 24) {
+                    // App title
+                    Text("RevEye")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .padding(.top, 16)
+                    
+                    // MARK: - Capture & Select Section
+                    VStack(spacing: 16) {
+                        // Camera Button
+                        Button(action: {
+                            print("Camera button tapped")
+                            showCamera = true
+                        }) {
+                            Text("Take Photo")
+                                .font(.title2)
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
                         }
-                        // Run the classification on the captured image
-                        classifier.classify(image: uiImage)
-                    }
-                }
-                
-                // MARK: - Gallery Button
-                // Opens the photo library to select an existing image
-                PhotosPicker(selection: $selectedItem, matching: .images) {
-                    Text("Select Photo")
-                        .font(.title2)
+                        .sheet(isPresented: $showCamera) {
+                            // Custom ImagePicker for camera capture
+                            ImagePicker(sourceType: .camera) { uiImage in
+                                if let data = uiImage.jpegData(compressionQuality: 0.9) {
+                                    selectedImageData = data
+                                }
+                                classifier.classify(image: uiImage)
+                                statusMessage = "Classified photo. Review result before saving."
+                            }
+                        }
+                        
+                        // Gallery Button
+                        PhotosPicker(selection: $selectedItem, matching: .images) {
+                            Text("Select Photo")
+                                .font(.title2)
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(Color.green)
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
+                        }
+                        
+                        // Video Upload Button
+                        Button("Upload Video") {
+                            showVideoPicker = true
+                        }
                         .padding()
                         .frame(maxWidth: .infinity)
-                        .background(Color.green)
+                        .background(Color.orange)
                         .foregroundColor(.white)
                         .cornerRadius(12)
-                }
-                
-                // MARK: - Video Upload Button
-                // Opens the video picker to select a video from the library
-                Button("Upload Video") {
-                    showVideoPicker = true
-                }
-                .sheet(isPresented: $showVideoPicker) {
-                    VideoPicker { url in
-                        self.selectedVideoURL = url
-                        print("Video selected at URL: \(url)")
-                        
-                        // Extract audio from the selected video
-                        AudioExtractor.extract(from: url) { audioURL in
-                            if let audioURL = audioURL {
-                                print("Extracted audio at: \(audioURL)")
+                        .sheet(isPresented: $showVideoPicker) {
+                            VideoPicker { url in
+                                self.selectedVideoURL = url
+                                print("Video selected at URL: \(url)")
+                                
+                                // Extract audio from the selected video
+                                AudioExtractor.extract(from: url) { audioURL in
+                                    if let audioURL = audioURL {
+                                        print("Extracted audio at: \(audioURL)")
+                                    }
+                                }
                             }
                         }
                     }
-                }
-                
-                // MARK: - Save Detection Button
-                // Saves the last classification result to local database and syncs to Firebase
-                Button("Save detection locally") {
-                    // Check if there's a classification result available
-                    if let output = classifier.lastOutput {
-                        
-                        // Save detection to local SQLite database
-                        if let detection = saveDetection(for: nil,
-                                                         label: output.label,
-                                                         confidence: output.confidence) {
+                    
+                    // MARK: - Save Detection Button
+                    VStack(spacing: 8) {
+                        Button("Save detection locally") {
+                            if let output = classifier.lastOutput {
+                                // Confidence threshold: 70%
+                                if output.confidence < 0.7 {
+                                    statusMessage = "Result uncertain (confidence below 70%). Try another photo before saving."
+                                    print("Low confidence: \(output.confidence)")
+                                    return
+                                }
+                                
+                                if let detection = saveDetection(for: nil,
+                                                                 label: output.label,
+                                                                 confidence: output.confidence) {
+                                    
+                                    FirebaseService.shared.uploadDetection(detection)
+                                    statusMessage = "Detection saved and queued for sync."
+                                }
+                                
+                                let all = DatabaseManager.shared.fetchAllDetections()
+                                print("All detections in DB")
+                                for d in all {
+                                    print("id=\(d.id ?? -1), label=\(d.vehicleLabel), conf=\(d.confidence)")
+                                }
+                                print("end list")
+                            } else {
+                                statusMessage = "No classification result yet. Take or select a photo first."
+                                print("No classification output yet")
+                            }
+                        }
+                    }
+                    
+                    // Status message
+                    if let statusMessage {
+                        Text(statusMessage)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .padding(.top, 4)
+                    }
+                    
+                    // MARK: - Image Preview and Results
+                    if let selectedImageData,
+                       let uiImage = UIImage(data: selectedImageData) {
+                        VStack(spacing: 8) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(height: 250)
+                                .cornerRadius(10)
                             
-                            // Upload the detection to Firebase for cloud storage
-                            FirebaseService.shared.uploadDetection(detection)
+                            Text("Detected: \(classifier.result)")
+                                .font(.headline)
                         }
-                        
-                        // Fetch and print all detections from local database (for debugging)
-                        let all = DatabaseManager.shared.fetchAllDetections()
-                        print("All detections in DB")
-                        for d in all {
-                            print("id=\(d.id ?? -1), label=\(d.vehicleLabel), conf=\(d.confidence)")
-                        }
-                        print("end list")
-                    } else {
-                        print("No classification output yet")
+                        .padding(.top, 16)
+                    }
+                    
+                    // MARK: - Video Preview
+                    if let videoURL = selectedVideoURL {
+                        VideoPlayer(player: AVPlayer(url: videoURL))
+                            .frame(height: 250)
+                            .cornerRadius(10)
+                            .padding(.top, 16)
                     }
                 }
-                .padding(.top, 8)
-                
-                
-                // MARK: - Image Preview and Results
-                // Display the selected/captured image and classification result
-                if let selectedImageData,
-                   let uiImage = UIImage(data: selectedImageData) {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 250)
-                        .cornerRadius(10)
-                        .padding(.top, 20)
-                    
-                    // Display the classification result
-                    Text("Detected: \(classifier.result)")
-                        .font(.headline)
-                        .padding(.top, 10)
-                }
-                
-                // MARK: - Video Preview
-                // Display the selected video in a player
-                if let videoURL = selectedVideoURL {
-                    VideoPlayer(player: AVPlayer(url: videoURL))
-                        .frame(height: 250)
-                        .cornerRadius(10)
-                        .padding(.top, 20)
-                }
-                
-                Spacer()
+                .padding(.horizontal)
+                .padding(.bottom, 24)
             }
-            
-            .padding()
             // Monitor changes to the PhotosPicker selection
             .onChange(of: selectedItem) { newItem in
                 loadImage(from: newItem)
@@ -174,7 +192,6 @@ struct HomeView: View {
                 }
             }
         }
-        .padding()
     }
     
     // MARK: - Helper Methods
@@ -184,14 +201,13 @@ struct HomeView: View {
     private func loadImage(from item: PhotosPickerItem?) {
         guard let item = item else { return }
         Task {
-            // Attempt to load the image data
             if let data = try? await item.loadTransferable(type: Data.self) {
                 await MainActor.run {
                     selectedImageData = data
                     
-                    // Convert to UIImage and run classification
                     if let uiImage = UIImage(data: data) {
                         classifier.classify(image: uiImage)
+                        statusMessage = "Classified photo. Review result before saving."
                     }
                 }
             }
@@ -205,22 +221,17 @@ struct HomeView: View {
     ///   - confidence: Confidence score of the detection (0.0 to 1.0)
     /// - Returns: Detection object with assigned ID if successful, nil otherwise
     private func saveDetection(for imageURL: URL?, label: String, confidence: Double) -> Detection? {
-        
-        // Create ISO8601 timestamp for the detection
         let formatter = ISO8601DateFormatter()
         
-        // Build Detection object without database ID
         let detectionToInsert = Detection(
             id: nil,
             vehicleLabel: label,
             confidence: confidence,
             timestamp: formatter.string(from: Date()),
-            synced: 0  // Mark as not yet synced to cloud
+            synced: 0
         )
         
-        // Insert into database and get the generated ID
-        if let newId = DatabaseManager.shared.insertDetection(detectionToInsert) {
-            // Return Detection with the database-assigned ID
+        if let newId = db.insertDetection(detectionToInsert) {
             return Detection(
                 id: newId,
                 vehicleLabel: detectionToInsert.vehicleLabel,
@@ -233,4 +244,3 @@ struct HomeView: View {
         }
     }
 }
-
