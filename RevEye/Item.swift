@@ -8,6 +8,8 @@
 import Foundation
 import SwiftData
 
+// SwiftData model for storing item timestamps
+// @Model macro makes this class compatible with SwiftData persistence
 @Model
 final class Item {
     var timestamp: Date

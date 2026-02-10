@@ -1,4 +1,13 @@
+//
+//  AuthService.swift
+//  RevEye
+//
+//  Created by user on 07/02/2026.
+//
+
+
 import Foundation
+import Combine
 import FirebaseAuth
 
 final class AuthService: ObservableObject {

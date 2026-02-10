@@ -8,8 +8,9 @@
 
 import Foundation
 
+// Represents a vehicle detected by the ML model
 struct Vehicle: Identifiable, Codable {
-    let id: UUID = UUID()
+    let id: UUID = UUID()  // Unique identifier - auto-generated for each detection
     let make: String
     let model: String
     let year: Int?
@@ -18,8 +19,8 @@ struct Vehicle: Identifiable, Codable {
     let imageURL: URL?
 }
 
+// Combines vehicle data with detection metadata for display/analysis
 struct DetectionResult {
-    let vehicle: Vehicle
-    let boundingBox: CGRect?
-    let processingTime: TimeInterval
+    let vehicle: Vehicle // Identified vehical information
+    let processingTime: TimeInterval // Time taken for ML model to process detection
 }
