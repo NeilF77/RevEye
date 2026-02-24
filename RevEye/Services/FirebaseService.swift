@@ -5,41 +5,40 @@
 //  Created by user on 28/11/2025.
 //
 
-
 import Foundation
 import FirebaseFirestore
 
-// Handles uploading vehicle detection data to Firebase Firestore
 final class FirebaseService {
-    static let shared = FirebaseService() // only one Firebase service instance needed
-    private let db = Firestore.firestore() // Reference to Firestore database
+    static let shared = FirebaseService()
+    private let db = Firestore.firestore()
 
-    // Private init ensures only one instance exists
     private init() {}
 
-    // Uploads a detection to Firestore and marks it as synced in local database
-    func uploadDetection(_ detection: Detection) {
-        // Add new document to "detections" collection with auto-generated ID
+    /// Uploads a detection to Firestore and marks it as synced locally on success.
+    /// - Parameters:
+    ///   - detection: The detection to upload.
+    ///   - sourceType: Where the detection came from — `.photo` or `.video`.
+    func uploadDetection(_ detection: Detection, source: SourceType = .photo) {
         db.collection("detections").addDocument(data: [
             "vehicleLabel": detection.vehicleLabel,
-            "confidence": detection.confidence,
-            "timestamp": detection.timestamp,
-            "sourceType": "photo",   // later send "video" for video-based detections
-            "imageUrl": NSNull(),    // will be replaced with a Storage URL once upload images
-            "audioUrl": NSNull()     // will be replaced with a Storage URL once upload audio
+            "confidence":   detection.confidence,
+            "timestamp":    detection.timestamp,
+            "sourceType":   source.rawValue
         ]) { error in
-            // Completion handler called after upload attempt finishes
-
             if let error = error {
-                print("Error uploading detection: \(error)")
+                print("Firebase upload error: \(error.localizedDescription)")
             } else {
-                print("Uploaded detection to Firestore")
-                
-                // Mark the local row as synced so you keep it for history.
+                print("Uploaded \(detection.vehicleLabel) (\(source.rawValue)) to Firestore")
                 if let id = detection.id {
                     DatabaseManager.shared.markAsSynced(id: id)
                 }
             }
         }
     }
+}
+
+// Describes where a detection originated
+enum SourceType: String {
+    case photo = "photo"
+    case video = "video"
 }

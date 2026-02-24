@@ -13,6 +13,12 @@ import AVFoundation
 import FirebaseAuth
 import Combine
 
+// Tracks which input the user most recently used so only one result is shown at a time.
+// Switching to photo clears video state; switching to video clears photo state.
+private enum ActiveMode {
+    case none, photo, video
+}
+
 struct HomeView: View {
 
     // MARK: - State
@@ -25,11 +31,19 @@ struct HomeView: View {
 
     @StateObject private var classifier = CarClassifier()
 
+    // Controls which result card is visible — only one is ever shown at a time
+    @State private var activeMode: ActiveMode = .none
+
+    // Held so we can cancel video processing if the user switches to a photo mid-scan
+    @State private var videoTask: Task<Void, Never>? = nil
+
     @State private var statusMessage: String? = nil
     @State private var isProcessingVideo = false
-    @State private var videoProgress: Double = 0      // frames done
-    @State private var videoTotal: Double = 1         // total frames
-    @State private var videoDetections: [Detection] = []
+    @State private var videoProgress: Double = 0
+    @State private var videoTotal: Double = 1
+
+    // Each entry is a unique vehicle: (label, confidence, seconds into video)
+    @State private var videoDetections: [(label: String, confidence: Double, appearedAt: Double)] = []
 
     private let db = DatabaseManager.shared
 
@@ -42,7 +56,6 @@ struct HomeView: View {
 
                     // MARK: Input Buttons
                     VStack(spacing: 12) {
-                        // Camera
                         Button("Take Photo") { showCamera = true }
                             .buttonStyle(AppButtonStyle(color: .blue))
                             .sheet(isPresented: $showCamera) {
@@ -51,7 +64,6 @@ struct HomeView: View {
                                 }
                             }
 
-                        // Photo library
                         PhotosPicker(selection: $selectedItem, matching: .images) {
                             Text("Select Photo")
                                 .frame(maxWidth: .infinity)
@@ -61,20 +73,19 @@ struct HomeView: View {
                                 .cornerRadius(12)
                         }
 
-                        // Video
                         Button("Upload Video") { showVideoPicker = true }
                             .buttonStyle(AppButtonStyle(color: .orange))
                             .sheet(isPresented: $showVideoPicker) {
                                 VideoPicker { url in
                                     selectedVideoURL = url
-                                    videoDetections = []
-                                    Task { await processVideo(url: url) }
+                                    videoTask?.cancel()
+                                    videoTask = Task { await processVideo(url: url) }
                                 }
                             }
                     }
 
-                    // MARK: Photo result
-                    if let data = selectedImageData, let uiImage = UIImage(data: data) {
+                    // MARK: Photo Result — only shown when the user's last action was a photo
+                    if activeMode == .photo, let data = selectedImageData, let uiImage = UIImage(data: data) {
                         VStack(spacing: 8) {
                             Image(uiImage: uiImage)
                                 .resizable()
@@ -86,7 +97,6 @@ struct HomeView: View {
                                 .font(.headline)
                                 .multilineTextAlignment(.center)
 
-                            // Only show Save once the classifier has a result
                             if classifier.lastOutput != nil {
                                 Button("Save Detection") { savePhotoDetection() }
                                     .buttonStyle(AppButtonStyle(color: .blue))
@@ -97,7 +107,7 @@ struct HomeView: View {
                         .cornerRadius(12)
                     }
 
-                    // MARK: Status message
+                    // MARK: Status Message
                     if let msg = statusMessage {
                         Text(msg)
                             .font(.subheadline)
@@ -105,20 +115,20 @@ struct HomeView: View {
                             .multilineTextAlignment(.center)
                     }
 
-                    // MARK: Video player
-                    if let videoURL = selectedVideoURL {
+                    // MARK: Video Player — only shown when the user's last action was a video
+                    if activeMode == .video, let videoURL = selectedVideoURL {
                         VideoPlayer(player: AVPlayer(url: videoURL))
                             .frame(height: 220)
                             .cornerRadius(10)
                     }
 
-                    // MARK: Video processing progress
-                    if isProcessingVideo {
+                    // MARK: Video Scan Progress
+                    if activeMode == .video && isProcessingVideo {
                         VStack(spacing: 8) {
                             ProgressView("Scanning video for vehicles…")
                             ProgressView(value: videoProgress, total: videoTotal)
                                 .progressViewStyle(.linear)
-                            Text("\(Int(videoProgress)) / \(Int(videoTotal)) frames · \(videoDetections.count) found")
+                            Text("\(Int(videoProgress)) / \(Int(videoTotal)) frames · \(videoDetections.count) unique vehicle(s) found")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -127,32 +137,57 @@ struct HomeView: View {
                         .cornerRadius(10)
                     }
 
-                    // MARK: Video detections list
-                    if !videoDetections.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(isProcessingVideo ? "Detections so far" : "Video Detections (\(videoDetections.count))")
+                    // MARK: Video Detection Results
+                    if activeMode == .video && !videoDetections.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(isProcessingVideo ? "Vehicles found so far" : "Vehicles Detected")
                                 .font(.headline)
+                                .padding(.bottom, 10)
 
-                            ForEach(videoDetections) { detection in
-                                HStack {
-                                    Image(systemName: "car.fill")
-                                        .foregroundColor(.orange)
-                                        .frame(width: 36)
-                                    VStack(alignment: .leading) {
-                                        Text(detection.vehicleLabel)
+                            ForEach(Array(videoDetections.enumerated()), id: \.offset) { _, det in
+                                HStack(spacing: 14) {
+                                    // Icon
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color.orange.opacity(0.15))
+                                            .frame(width: 44, height: 44)
+                                        Image(systemName: "car.fill")
+                                            .foregroundColor(.orange)
+                                    }
+
+                                    // Label + confidence
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(det.label)
                                             .fontWeight(.semibold)
-                                        Text("\(Int(detection.confidence * 100))% confidence")
+                                        Text("\(Int(det.confidence * 100))% confidence")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
+
                                     Spacer()
+
+                                    // "First seen at X:XX" badge
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        Text("First seen at")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Text(formatVideoTime(det.appearedAt))
+                                            .font(.subheadline)
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(.orange)
+                                            .monospacedDigit()
+                                    }
                                 }
-                                .padding(.vertical, 4)
+                                .padding(.vertical, 10)
+
+                                if det.label != videoDetections.last?.label {
+                                    Divider()
+                                }
                             }
                         }
                         .padding()
-                        .background(Color.green.opacity(0.1))
-                        .cornerRadius(10)
+                        .background(Color(.secondarySystemBackground))
+                        .cornerRadius(12)
                     }
 
                 }
@@ -179,6 +214,15 @@ struct HomeView: View {
     // MARK: - Photo Handling
 
     private func handlePickedImage(_ image: UIImage) {
+        // Cancel any in-progress video scan before switching to photo mode
+        videoTask?.cancel()
+        videoTask = nil
+
+        activeMode = .photo
+        selectedVideoURL = nil
+        videoDetections = []
+        isProcessingVideo = false
+
         selectedImageData = image.jpegData(compressionQuality: 0.9)
         statusMessage = nil
         classifier.classify(image: image)
@@ -186,10 +230,20 @@ struct HomeView: View {
 
     private func loadPhotoPickerImage(_ item: PhotosPickerItem?) {
         guard let item else { return }
+
+        // Cancel any in-progress video scan before switching to photo mode
+        videoTask?.cancel()
+        videoTask = nil
+
         Task {
             guard let data = try? await item.loadTransferable(type: Data.self),
                   let image = UIImage(data: data) else { return }
             await MainActor.run {
+                activeMode = .photo
+                selectedVideoURL = nil
+                videoDetections = []
+                isProcessingVideo = false
+
                 selectedImageData = data
                 statusMessage = nil
             }
@@ -214,16 +268,26 @@ struct HomeView: View {
 
     // MARK: - Video Processing
 
-    /// Samples one frame per second, classifies each with the ML model, and saves hits.
+    /// Samples one frame per second, runs the ML classifier on each frame, and saves
+    /// the first confident detection of each unique vehicle label.
     ///
-    /// WHY we use a Combine continuation here:
-    /// CarClassifier.classify() dispatches work onto a background DispatchQueue and publishes
-    /// the result via @Published on the main thread. If we just call classify() and immediately
-    /// read lastOutput, we'll always get the *previous* frame's result — a race condition.
-    /// By subscribing to $lastOutput and awaiting the *next* emission, we guarantee we have
-    /// the correct result for the current frame before moving on.
+    /// DEDUPLICATION: `seenLabels` is a Set that accumulates label strings as we scan.
+    /// When a label is already in the set, that vehicle has already been recorded and
+    /// the frame is skipped — so each vehicle appears exactly once in the results.
+    ///
+    /// VIDEO TIMESTAMP: We record `time.seconds` (position in the video) not wall-clock
+    /// time, so the user can see "first seen at 0:14" rather than a date string.
+    ///
+    /// AWAITING THE CLASSIFIER: CarClassifier.classify() dispatches internally via
+    /// DispatchQueue and publishes via @Published. We subscribe to $lastOutput with a
+    /// Combine continuation so we always wait for the result of the *current* frame
+    /// before moving on — avoiding a race condition on lastOutput.
     private func processVideo(url: URL) async {
         await MainActor.run {
+            // Switch to video mode — clears any photo result from the screen
+            activeMode = .video
+            selectedImageData = nil
+
             isProcessingVideo = true
             videoDetections = []
             videoProgress = 0
@@ -241,7 +305,7 @@ struct HomeView: View {
             return
         }
 
-        // Sample every 1 second. Raise this (e.g. 2.0) to go faster on long videos.
+        // One frame per second. Increase interval (e.g. 2.0) to scan faster on long videos.
         let interval: Double = 1.0
         let times = stride(from: 0.0, to: duration, by: interval).map {
             CMTime(seconds: $0, preferredTimescale: 600)
@@ -256,21 +320,24 @@ struct HomeView: View {
         generator.requestedTimeToleranceAfter  = CMTime(seconds: 0.5, preferredTimescale: 600)
 
         var framesProcessed = 0
-        var detectionsFound = 0
+        var seenLabels = Set<String>()  // prevents the same vehicle being shown twice
 
         for time in times {
+            // Stop immediately if the user has switched to a photo
+            guard !Task.isCancelled else {
+                await MainActor.run { isProcessingVideo = false }
+                return
+            }
+
             framesProcessed += 1
 
-            // Extract the frame — skip if extraction fails
             guard let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) else {
                 await MainActor.run { videoProgress = Double(framesProcessed) }
                 continue
             }
 
-            let uiImage = UIImage(cgImage: cgImage)
-
-            // Await the real classification result using a Combine subscription.
-            // dropFirst() skips the current stale value; first() completes after one new value.
+            // Await the classifier result for this specific frame via Combine.
+            // dropFirst() skips the stale previous value; first() resolves after one new emission.
             let output: ClassificationOutput? = await withCheckedContinuation { continuation in
                 var cancellable: AnyCancellable?
                 cancellable = classifier.$lastOutput
@@ -280,14 +347,25 @@ struct HomeView: View {
                         cancellable?.cancel()
                         continuation.resume(returning: result)
                     }
-                classifier.classify(image: uiImage)
+                classifier.classify(image: UIImage(cgImage: cgImage))
             }
 
-            if let output, output.confidence >= 0.6 {
+            // Only record if confident and not seen before
+            if let output, output.confidence >= 0.6, !seenLabels.contains(output.label) {
+                seenLabels.insert(output.label)
+                let appearedAt = time.seconds
+
+                // Save to SQLite + queue Firebase sync
                 if let saved = insertDetection(label: output.label, confidence: output.confidence) {
-                    detectionsFound += 1
-                    FirebaseService.shared.uploadDetection(saved)
-                    await MainActor.run { videoDetections.append(saved) }
+                    FirebaseService.shared.uploadDetection(saved, source: .video)
+                }
+
+                await MainActor.run {
+                    videoDetections.append((
+                        label: output.label,
+                        confidence: output.confidence,
+                        appearedAt: appearedAt
+                    ))
                 }
             }
 
@@ -296,13 +374,16 @@ struct HomeView: View {
 
         await MainActor.run {
             isProcessingVideo = false
-            statusMessage = "Done — \(framesProcessed) frames scanned, \(detectionsFound) vehicle(s) detected"
+            let count = videoDetections.count
+            statusMessage = count == 0
+                ? "No vehicles detected. Try a clearer video."
+                : "Found \(count) unique vehicle\(count == 1 ? "" : "s")."
         }
     }
 
     // MARK: - Helpers
 
-    /// Creates a Detection, saves it to SQLite, and returns the saved copy with its new ID.
+    /// Inserts a detection into SQLite and returns the saved record with its new ID.
     private func insertDetection(label: String, confidence: Double) -> Detection? {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let toInsert = Detection(id: nil, vehicleLabel: label, confidence: confidence,
@@ -311,9 +392,15 @@ struct HomeView: View {
         return Detection(id: newId, vehicleLabel: label, confidence: confidence,
                          timestamp: timestamp, synced: 0)
     }
+
+    /// Converts raw seconds to a "m:ss" display string  e.g. 75.0 → "1:15"
+    private func formatVideoTime(_ seconds: Double) -> String {
+        let total = Int(seconds)
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
 }
 
-// MARK: - Reusable Button Style
+// MARK: - Button Style
 
 private struct AppButtonStyle: ButtonStyle {
     let color: Color
