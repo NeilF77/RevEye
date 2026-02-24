@@ -10,6 +10,8 @@ import PhotosUI
 import UIKit
 import AVKit
 import AVFoundation
+import FirebaseAuth
+
 
 /// Main home view for the RevEye app
 /// Provides functionality to capture/select images and videos, classify vehicles, and save detections
@@ -187,8 +189,23 @@ struct HomeView: View {
             }
             .navigationTitle("RevEye")
             .toolbar {
-                NavigationLink("Collection") {
-                    CollectionView()
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack {
+                        NavigationLink("Collection") {
+                            CollectionView()
+                        }
+                        Button("Logout") {
+                            Task {
+                                do {
+                                    try Auth.auth().signOut()
+                                    print("Logged out")
+                                } catch {
+                                    print("Logout failed: \(error)")
+                                }
+                            }
+                        }
+                        .foregroundStyle(.red)
+                    }
                 }
             }
         }
