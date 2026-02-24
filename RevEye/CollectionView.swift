@@ -8,8 +8,13 @@
 import SwiftUI
 
 struct CollectionView: View {
-    @State private var detections: [Detection] = []
+    // Passed in from HomeView so both views share the same source of truth.
+    // When HomeView saves a detection, it updates this binding and CollectionView
+    // reflects the change immediately without needing onAppear to re-fire.
+    @Binding var detections: [Detection]
+
     @State private var isSyncing = false
+    @State private var syncMessage: String? = nil
     private let db = DatabaseManager.shared
 
     var body: some View {
@@ -20,7 +25,6 @@ struct CollectionView: View {
                         Text(det.vehicleLabel)
                             .font(.headline)
                         Spacer()
-                        // Sync status badge
                         Label(
                             det.synced == 1 ? "Synced" : "Local",
                             systemImage: det.synced == 1 ? "checkmark.icloud" : "icloud.slash"
@@ -45,9 +49,7 @@ struct CollectionView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack {
-                    // EditButton enables swipe-to-delete and the red minus buttons
                     EditButton()
-
                     Button {
                         syncUnsynced()
                     } label: {
@@ -61,16 +63,20 @@ struct CollectionView: View {
                 }
             }
         }
+        // Reload every time the view appears — handles the case where the user
+        // navigates away, a background sync marks rows as synced, then navigates back
         .onAppear {
-            loadDetections()
+            detections = db.fetchAllDetections()
+        }
+        if let msg = syncMessage {
+            Text(msg)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.bottom, 8)
         }
     }
 
     // MARK: - Private
-
-    private func loadDetections() {
-        detections = db.fetchAllDetections()
-    }
 
     private func deleteDetections(at offsets: IndexSet) {
         for index in offsets {
@@ -78,32 +84,38 @@ struct CollectionView: View {
                 db.deleteDetection(id: id)
             }
         }
-        // Remove from local array so the list updates instantly
         detections.remove(atOffsets: offsets)
     }
 
+    /// Uploads each unsynced detection and reloads the list only after every
+    /// upload has completed — no arbitrary delay needed.
     private func syncUnsynced() {
         let unsynced = db.fetchUnsyncedDetections()
         guard !unsynced.isEmpty else {
-            print("Nothing to sync")
+            syncMessage = "Everything is synced."
             return
         }
 
         isSyncing = true
+        syncMessage = nil
 
-        // Upload each unsynced detection. FirebaseService.uploadDetection already calls
-        // markAsSynced internally when the upload succeeds, so we just need to reload
-        // the list once enough time has passed for the callbacks to complete.
+        // Use a DispatchGroup to know exactly when all uploads have finished
+        let group = DispatchGroup()
+        var successCount = 0
+
         for det in unsynced {
-            FirebaseService.shared.uploadDetection(det, source: .photo)
+            group.enter()
+            FirebaseService.shared.uploadDetection(det, source: .photo) { success in
+                if success { successCount += 1 }
+                group.leave()
+            }
         }
 
-        // Reload after a short delay to reflect updated synced flags from Firebase callbacks.
-        // A more robust approach would be a completion-based API on FirebaseService,
-        // but this covers the typical case cleanly without over-engineering.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            loadDetections()
+        // This fires on the main thread once every completion handler has called leave()
+        group.notify(queue: .main) {
+            detections = db.fetchAllDetections()
             isSyncing = false
+            syncMessage = "\(successCount) of \(unsynced.count) detection(s) synced."
         }
     }
 

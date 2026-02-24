@@ -34,6 +34,9 @@ struct HomeView: View {
     // Controls which result card is visible — only one is ever shown at a time
     @State private var activeMode: ActiveMode = .none
 
+    // Prevents the Save button being tapped twice on the same photo
+    @State private var photoSaved = false
+
     // Held so we can cancel video processing if the user switches to a photo mid-scan
     @State private var videoTask: Task<Void, Never>? = nil
 
@@ -46,6 +49,10 @@ struct HomeView: View {
     @State private var videoDetections: [(label: String, confidence: Double, appearedAt: Double)] = []
 
     private let db = DatabaseManager.shared
+
+    // Shared source of truth for saved detections — passed as a binding to CollectionView
+    // so both views stay in sync without needing onAppear to reload from the DB
+    @State private var savedDetections: [Detection] = []
 
     // MARK: - Body
 
@@ -98,8 +105,11 @@ struct HomeView: View {
                                 .multilineTextAlignment(.center)
 
                             if classifier.lastOutput != nil {
-                                Button("Save Detection") { savePhotoDetection() }
-                                    .buttonStyle(AppButtonStyle(color: .blue))
+                                Button(photoSaved ? "Saved ✓" : "Save Detection") {
+                                    savePhotoDetection()
+                                }
+                                .buttonStyle(AppButtonStyle(color: photoSaved ? .gray : .blue))
+                                .disabled(photoSaved)
                             }
                         }
                         .padding()
@@ -196,11 +206,16 @@ struct HomeView: View {
             .onChange(of: selectedItem) { newItem in
                 loadPhotoPickerImage(newItem)
             }
+            .onAppear {
+                savedDetections = db.fetchAllDetections()
+            }
             .navigationTitle("RevEye")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack {
-                        NavigationLink("Collection") { CollectionView() }
+                        NavigationLink("Collection") {
+                            CollectionView(detections: $savedDetections)
+                        }
                         Button("Logout") {
                             try? Auth.auth().signOut()
                         }
@@ -222,6 +237,7 @@ struct HomeView: View {
         selectedVideoURL = nil
         videoDetections = []
         isProcessingVideo = false
+        photoSaved = false  // reset so Save button is available for the new photo
 
         selectedImageData = image.jpegData(compressionQuality: 0.9)
         statusMessage = nil
@@ -243,6 +259,7 @@ struct HomeView: View {
                 selectedVideoURL = nil
                 videoDetections = []
                 isProcessingVideo = false
+                photoSaved = false  // reset so Save button is available for the new photo
 
                 selectedImageData = data
                 statusMessage = nil
@@ -256,13 +273,15 @@ struct HomeView: View {
             statusMessage = "No result to save yet."
             return
         }
-        guard output.confidence >= 0.7 else {
-            statusMessage = "Confidence too low (<70%). Try a clearer photo."
-            return
-        }
         if let saved = insertDetection(label: output.label, confidence: output.confidence) {
             FirebaseService.shared.uploadDetection(saved)
-            statusMessage = "Saved: \(saved.vehicleLabel)"
+            if output.confidence < 0.7 {
+                statusMessage = "Saved with low confidence (\(Int(output.confidence * 100))%) — result may be inaccurate."
+            } else {
+                statusMessage = "Saved: \(saved.vehicleLabel)"
+            }
+            photoSaved = true
+            savedDetections = db.fetchAllDetections()
         }
     }
 
@@ -336,18 +355,35 @@ struct HomeView: View {
                 continue
             }
 
-            // Await the classifier result for this specific frame via Combine.
-            // dropFirst() skips the stale previous value; first() resolves after one new emission.
-            let output: ClassificationOutput? = await withCheckedContinuation { continuation in
-                var cancellable: AnyCancellable?
-                cancellable = classifier.$lastOutput
-                    .dropFirst()
-                    .first()
-                    .sink { result in
-                        cancellable?.cancel()
-                        continuation.resume(returning: result)
+            // Await the classifier result for this specific frame.
+            // We use a throwing continuation so that Swift cooperative cancellation
+            // (triggered when the user picks a photo mid-scan) immediately throws
+            // CancellationError, which we catch to exit the loop cleanly.
+            // Without this, the continuation would hang indefinitely waiting for
+            // $lastOutput to emit if the task is cancelled between frames.
+            let output: ClassificationOutput?
+            do {
+                output = try await withCheckedThrowingContinuation { continuation in
+                    // Register cancellation handler BEFORE subscribing, so if the task
+                    // is already cancelled this path is taken immediately.
+                    if Task.isCancelled {
+                        continuation.resume(throwing: CancellationError())
+                        return
                     }
-                classifier.classify(image: UIImage(cgImage: cgImage))
+                    var cancellable: AnyCancellable?
+                    cancellable = classifier.$lastOutput
+                        .dropFirst()
+                        .first()
+                        .sink { result in
+                            cancellable?.cancel()
+                            continuation.resume(returning: result)
+                        }
+                    classifier.classify(image: UIImage(cgImage: cgImage))
+                }
+            } catch {
+                // CancellationError (or any Vision error propagated up) — stop processing
+                await MainActor.run { isProcessingVideo = false }
+                return
             }
 
             // Only record if confident and not seen before
@@ -358,6 +394,7 @@ struct HomeView: View {
                 // Save to SQLite + queue Firebase sync
                 if let saved = insertDetection(label: output.label, confidence: output.confidence) {
                     FirebaseService.shared.uploadDetection(saved, source: .video)
+                    await MainActor.run { savedDetections = db.fetchAllDetections() }
                 }
 
                 await MainActor.run {

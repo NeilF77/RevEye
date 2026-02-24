@@ -38,10 +38,8 @@ class DatabaseManager {
     }
 
     private func createTables() {
-        // Column is named vehicleLabel to match the Detection struct exactly.
-        // Note: if you are updating an existing install, run a migration or
-        // delete + reinstall the app once so the old "vehicleModel" column is replaced.
-        let sql = """
+        // Create the table using vehicleLabel if it doesn't exist yet (fresh installs)
+        let createSQL = """
         CREATE TABLE IF NOT EXISTS detections (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             vehicleLabel TEXT    NOT NULL,
@@ -50,10 +48,70 @@ class DatabaseManager {
             synced       INTEGER NOT NULL DEFAULT 0
         );
         """
-        if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+        if sqlite3_exec(db, createSQL, nil, nil, nil) != SQLITE_OK {
             print("DB error: could not create detections table — \(errorMessage)")
         } else {
             print("detections table ready")
+        }
+
+        // Migration: existing installs have the column named "vehicleModel".
+        // SQLite doesn't support RENAME COLUMN before version 3.25, so we check
+        // whether vehicleLabel already exists — if not, we recreate the table with
+        // the correct column name and copy all existing rows across.
+        migrateVehicleModelColumnIfNeeded()
+    }
+
+    private func migrateVehicleModelColumnIfNeeded() {
+        // Check existing column names via PRAGMA
+        let pragma = "PRAGMA table_info(detections);"
+        var stmt: OpaquePointer?
+        var hasVehicleLabel = false
+
+        if sqlite3_prepare_v2(db, pragma, -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let cName = sqlite3_column_text(stmt, 1) {
+                    let name = String(cString: cName)
+                    if name == "vehicleLabel" {
+                        hasVehicleLabel = true
+                    }
+                }
+            }
+        }
+        sqlite3_finalize(stmt)
+
+        guard !hasVehicleLabel else {
+            // Column already correct — nothing to do
+            return
+        }
+
+        print("DB migration: renaming vehicleModel → vehicleLabel")
+
+        // Recreate the table with the correct column name and copy data across
+        let migration = """
+        BEGIN TRANSACTION;
+
+        CREATE TABLE detections_new (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            vehicleLabel TEXT    NOT NULL,
+            confidence   REAL    NOT NULL,
+            timestamp    TEXT    NOT NULL,
+            synced       INTEGER NOT NULL DEFAULT 0
+        );
+
+        INSERT INTO detections_new (id, vehicleLabel, confidence, timestamp, synced)
+        SELECT id, vehicleModel, confidence, timestamp, synced FROM detections;
+
+        DROP TABLE detections;
+
+        ALTER TABLE detections_new RENAME TO detections;
+
+        COMMIT;
+        """
+
+        if sqlite3_exec(db, migration, nil, nil, nil) != SQLITE_OK {
+            print("DB migration error: \(errorMessage)")
+        } else {
+            print("DB migration complete — vehicleModel renamed to vehicleLabel")
         }
     }
 
