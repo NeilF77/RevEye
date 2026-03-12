@@ -3,14 +3,11 @@
 //  RevEye
 //
 //  Created by user on 06/02/2026.
-//
+//  Updated 10/03/2026 — added audio indicator icon
 
 import SwiftUI
 
 struct CollectionView: View {
-    // Passed in from HomeView so both views share the same source of truth.
-    // When HomeView saves a detection, it updates this binding and CollectionView
-    // reflects the change immediately without needing onAppear to re-fire.
     @Binding var detections: [Detection]
 
     @State private var isSyncing = false
@@ -24,7 +21,16 @@ struct CollectionView: View {
                     HStack {
                         Text(det.vehicleLabel)
                             .font(.headline)
+
+                        // Audio indicator — shows if this detection has an audio sample
+                        if det.audioSampleId != nil {
+                            Image(systemName: "waveform")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+
                         Spacer()
+
                         Label(
                             det.synced == 1 ? "Synced" : "Local",
                             systemImage: det.synced == 1 ? "checkmark.icloud" : "icloud.slash"
@@ -63,8 +69,6 @@ struct CollectionView: View {
                 }
             }
         }
-        // Reload every time the view appears — handles the case where the user
-        // navigates away, a background sync marks rows as synced, then navigates back
         .onAppear {
             detections = db.fetchAllDetections()
         }
@@ -87,8 +91,6 @@ struct CollectionView: View {
         detections.remove(atOffsets: offsets)
     }
 
-    /// Uploads each unsynced detection and reloads the list only after every
-    /// upload has completed — no arbitrary delay needed.
     private func syncUnsynced() {
         let unsynced = db.fetchUnsyncedDetections()
         guard !unsynced.isEmpty else {
@@ -99,7 +101,6 @@ struct CollectionView: View {
         isSyncing = true
         syncMessage = nil
 
-        // Use a DispatchGroup to know exactly when all uploads have finished
         let group = DispatchGroup()
         var successCount = 0
 
@@ -111,7 +112,6 @@ struct CollectionView: View {
             }
         }
 
-        // This fires on the main thread once every completion handler has called leave()
         group.notify(queue: .main) {
             detections = db.fetchAllDetections()
             isSyncing = false
@@ -119,7 +119,6 @@ struct CollectionView: View {
         }
     }
 
-    /// Converts an ISO8601 string to a readable date like "6 Feb 2026, 14:32"
     private func formatWallTime(_ iso: String) -> String {
         let parser = ISO8601DateFormatter()
         guard let date = parser.date(from: iso) else { return iso }

@@ -3,48 +3,60 @@
 //  RevEye
 //
 //  Created by user on 29/11/2025.
-//
+//  Updated 12/03/2026 — supports both photo and video capture from camera
 
 import SwiftUI
 import UIKit
 
-// Wraps UIImagePickerController for use in SwiftUI
-// Allows camera or photo library access to capture/select images
 struct ImagePicker: UIViewControllerRepresentable {
-    
-    // MARK: - Properties
-    
-    // Environment variable to dismiss the picker
-    @Environment(\.presentationMode) var presentationMode
-    
-    // Source type for the picker (camera or photo library)
-    var sourceType: UIImagePickerController.SourceType = .camera
-    
-    // Callback to return the selected image
-    var completion: (UIImage) -> Void
 
-    // MARK: - UIViewControllerRepresentable Methods
-    
-    // Creates and configures the UIImagePickerController
+    @Environment(\.presentationMode) var presentationMode
+
+    var sourceType: UIImagePickerController.SourceType = .camera
+
+    /// Called when the user takes a photo
+    var onImagePicked: ((UIImage) -> Void)?
+    /// Called when the user records a video
+    var onVideoPicked: ((URL) -> Void)?
+
+    // Legacy convenience init for photo-only usage
+    init(sourceType: UIImagePickerController.SourceType = .camera, completion: @escaping (UIImage) -> Void) {
+        self.sourceType = sourceType
+        self.onImagePicked = completion
+        self.onVideoPicked = nil
+    }
+
+    // Full init for photo + video
+    init(sourceType: UIImagePickerController.SourceType = .camera,
+         onImagePicked: ((UIImage) -> Void)? = nil,
+         onVideoPicked: ((URL) -> Void)? = nil) {
+        self.sourceType = sourceType
+        self.onImagePicked = onImagePicked
+        self.onVideoPicked = onVideoPicked
+    }
+
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.sourceType = sourceType
         picker.delegate = context.coordinator
-        picker.mediaTypes = ["public.image"]  // Only allow images
+
+        // Allow both photos and videos when opening camera
+        if sourceType == .camera {
+            picker.mediaTypes = ["public.image", "public.movie"]
+            picker.videoMaximumDuration = 60 // 1 minute max for video
+            picker.videoQuality = .typeMedium
+        } else {
+            picker.mediaTypes = ["public.image"]
+        }
         return picker
     }
 
-    // Updates the picker (not needed for this implementation)
     func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
 
-    // Creates the coordinator that handles picker delegate methods
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
 
-    // MARK: - Coordinator
-    
-    // Handles UIImagePickerController delegate callbacks
     class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         let parent: ImagePicker
 
@@ -52,18 +64,26 @@ struct ImagePicker: UIViewControllerRepresentable {
             self.parent = parent
         }
 
-        // Called when user selects an image
         func imagePickerController(_ picker: UIImagePickerController,
                                    didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-            // Extract the selected image
-            if let image = info[.originalImage] as? UIImage {
-                parent.completion(image)
+
+            let mediaType = info[.mediaType] as? String ?? ""
+
+            if mediaType == "public.movie",
+               let videoURL = info[.mediaURL] as? URL {
+                // User recorded a video — copy to temp directory
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("camera_\(UUID().uuidString).mov")
+                try? FileManager.default.copyItem(at: videoURL, to: tempURL)
+                parent.onVideoPicked?(tempURL)
+            } else if let image = info[.originalImage] as? UIImage {
+                // User took a photo
+                parent.onImagePicked?(image)
             }
-            // Dismiss the picker
+
             parent.presentationMode.wrappedValue.dismiss()
         }
 
-        // Called when user cancels the picker
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             parent.presentationMode.wrappedValue.dismiss()
         }

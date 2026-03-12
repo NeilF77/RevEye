@@ -2,8 +2,11 @@
 //  BadgesView.swift
 //  RevEye
 //
+//  Created by user on 09/03/2026.
+//  Fixed  10/03/2026 — onAppear refreshes from local DB first, not just Firebase
 
 import SwiftUI
+import Combine
 
 struct BadgesView: View {
     @ObservedObject private var badgeService = BadgeService.shared
@@ -86,9 +89,10 @@ struct BadgesView: View {
         }
         .navigationTitle("Badges")
         .onAppear {
-            // Re-fetch from Firebase every time the view appears so badges earned
-            // on another device show up immediately
-            BadgeService.shared.fetchFromFirebase()
+            // KEY FIX: refresh from local DB first, then Firebase.
+            // Previously only called fetchFromFirebase() which could fail silently
+            // and leave the badges array stale.
+            badgeService.refreshBadges()
         }
     }
 }
@@ -98,6 +102,7 @@ struct BadgesView: View {
 private struct BadgeCard: View {
     let badge: Badge
     let isEarned: Bool
+    @State private var appeared = false
 
     var body: some View {
         VStack(spacing: 10) {
@@ -114,6 +119,8 @@ private struct BadgeCard: View {
                     .font(.system(size: 30))
                     .grayscale(isEarned ? 0 : 1)
                     .opacity(isEarned ? 1 : 0.4)
+                    .scaleEffect(isEarned && appeared ? 1.0 : (isEarned ? 0.5 : 1.0))
+                    .animation(.spring(response: 0.4, dampingFraction: 0.6), value: appeared)
 
                 if !isEarned {
                     Image(systemName: "lock.fill")
@@ -152,5 +159,6 @@ private struct BadgeCard: View {
             RoundedRectangle(cornerRadius: 16)
                 .stroke(isEarned ? Color.orange.opacity(0.4) : Color.clear, lineWidth: 1.5)
         )
+        .onAppear { appeared = true }
     }
 }
