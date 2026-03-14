@@ -3,7 +3,7 @@
 //  RevEye
 //
 //  Created by user on 07/02/2026.
-//  Updated 10/03/2026 — wipes all local data on logout, syncs from Firebase on login
+//  Updated 14/03/2026 — clears saved images on logout
 
 import Foundation
 import Combine
@@ -20,7 +20,6 @@ final class AuthService: ObservableObject {
             self?.user = user
 
             if let user, user.uid != previousUid {
-                // New user just logged in — sync their data from Firebase
                 print("Auth: user signed in (\(user.uid)) — syncing from Firebase")
                 BadgeService.shared.refreshBadges()
             }
@@ -41,12 +40,10 @@ final class AuthService: ObservableObject {
 
     func signOut() {
         do {
-            // Wipe ALL local data before signing out.
-            // Detections, badges, audio samples — everything.
-            // Firebase is the source of truth; local DB is just a cache.
             DatabaseManager.shared.resetAllUserData()
             BadgeService.shared.clearLocal()
-            print("Auth: all local data wiped, signing out")
+            ImageStore.deleteAll()
+            print("Auth: all local data + images wiped, signing out")
 
             try Auth.auth().signOut()
             self.user = nil

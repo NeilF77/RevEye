@@ -2,8 +2,7 @@
 //  ScanView.swift
 //  RevEye
 //
-//  Created 12/03/2026 — UI overhaul
-//  Fixed 12/03/2026 — proper state clearing between scans, cleaner layout
+//  UI overhaul v8 — bigger ring, toast at bottom, softer Scan Again
 
 import SwiftUI
 import PhotosUI
@@ -14,621 +13,435 @@ struct ScanView: View {
 
     @State private var showCamera = false
     @State private var showVideoPicker = false
-    @State private var photoPickerItem: PhotosPickerItem?
+    @State private var photoItem: PhotosPickerItem?
     @State private var showAudioSheet = false
-    @State private var showCorrectionPicker = false
+    @State private var showCorrection = false
 
-    /// Determines what the main content area shows
-    private var viewState: ViewState {
+    private var state: VState {
         if vm.isClassifying { return .loading }
-        if vm.scanMode == .video && vm.isProcessingVideo { return .videoProcessing }
-        if vm.scanMode == .video && !vm.videoDetections.isEmpty { return .videoResult }
+        if vm.scanMode == .video && vm.isProcessingVideo { return .videoProg }
+        if vm.scanMode == .video && !vm.isProcessingVideo && vm.selectedVideoURL != nil { return .videoResult }
         if vm.scanMode == .photo, vm.classifier.lastOutput != nil { return .photoResult }
         return .idle
     }
-
-    private enum ViewState {
-        case idle, loading, photoResult, videoProcessing, videoResult
-    }
+    private enum VState { case idle, loading, photoResult, videoProg, videoResult }
 
     var body: some View {
         ZStack {
-            REColors.bgPrimary.ignoresSafeArea()
+            REColors.bg.ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: RESpacing.lg) {
-                    topBar
-                        .padding(.horizontal, RESpacing.lg)
-
-                    switch viewState {
-                    case .idle:       idleContent
-                    case .loading:    loadingContent
-                    case .photoResult: photoResultContent
-                    case .videoProcessing: videoProcessingContent
-                    case .videoResult: videoResultContent
+            VStack(spacing: 0) {
+                ScrollView(showsIndicators: false) {
+                    Group {
+                        switch state {
+                        case .idle:        idleView
+                        case .loading:     loadingView
+                        case .photoResult: photoResultView
+                        case .videoProg:   videoProgressView
+                        case .videoResult: videoResultView
+                        }
                     }
+                    .padding(.bottom, state == .idle ? RE.s24 : 88)
                 }
-                .padding(.top, RESpacing.sm)
-                .padding(.bottom, RESpacing.xxxl)
+
+                if state == .photoResult || state == .videoResult {
+                    footer
+                }
             }
 
-            // Badge toast
-            if vm.showBadgeToast, let badge = vm.toastBadge {
+            // Badge toast — bottom of screen, above tab bar
+            if vm.showBadgeToast, let b = vm.toastBadge {
                 VStack {
-                    BadgeToastView(badge: badge)
-                        .padding(.top, RESpacing.lg)
                     Spacer()
+                    toastView(b)
+                        .padding(.bottom, 90) // above tab bar
                 }
                 .zIndex(10)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .onChange(of: photoPickerItem) { _, newItem in
-            showCorrectionPicker = false
-            vm.handlePhotoPickerItem(newItem)
-        }
+        .onChange(of: photoItem) { _, v in showCorrection = false; vm.handlePhotoPickerItem(v) }
+        .onChange(of: vm.scanMode) { _, m in if m == .idle { showCorrection = false } }
         .sheet(isPresented: $showCamera) {
             ImagePicker(
                 sourceType: .camera,
-                onImagePicked: { image in
-                    showCorrectionPicker = false
-                    vm.handlePickedImage(image)
-                },
-                onVideoPicked: { url in
-                    showCorrectionPicker = false
-                    vm.startVideoProcessing(url: url)
-                }
+                onImagePicked: { showCorrection = false; vm.handlePickedImage($0) },
+                onVideoPicked: { showCorrection = false; vm.startVideoProcessing(url: $0) }
             )
         }
         .sheet(isPresented: $showVideoPicker) {
-            VideoPicker { url in
-                showCorrectionPicker = false
-                vm.startVideoProcessing(url: url)
-            }
+            VideoPicker { showCorrection = false; vm.startVideoProcessing(url: $0) }
         }
         .sheet(isPresented: $showAudioSheet) {
-            if let url = vm.selectedVideoURL, let firstDet = vm.videoDetections.first {
-                AudioContextSheet(
-                    videoURL: url,
-                    vehicleLabel: firstDet.label,
-                    confidence: firstDet.confidence,
-                    detectionIds: vm.videoDetectionIds
-                )
+            if let u = vm.selectedVideoURL, let d = vm.videoDetections.first(where: { $0.saved }) {
+                AudioContextSheet(videoURL: u, vehicleLabel: d.label,
+                                  confidence: d.confidence, detectionIds: vm.videoDetectionIds)
             }
         }
         .onAppear { vm.refreshDetections() }
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: - TOP BAR
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ═══════════════════════════════════════════════════
+    // MARK: - IDLE — even bigger ring
+    // ═══════════════════════════════════════════════════
 
-    private var topBar: some View {
-        HStack {
+    private var idleView: some View {
+        VStack(spacing: 0) {
+            Spacer().frame(height: RE.s32)
+
             Text("RevEye")
-                .font(REFonts.title)
-                .foregroundColor(REColors.textPrimary)
-            Spacer()
-            HStack(spacing: RESpacing.xs) {
-                Image(systemName: "car.fill")
-                    .font(.system(size: 11))
-                Text("\(vm.savedDetections.count)")
-                    .font(REFonts.mono)
+                .font(.system(size: 28, weight: .bold))
+                .foregroundColor(REColors.text)
+                .padding(.bottom, RE.s4)
+            Text("Vehicle Identifier")
+                .font(REFont.caption).foregroundColor(REColors.textSec)
+
+            Spacer().frame(height: RE.s48)
+
+            // Ring — 250pt to fill the screen
+            Button { showCamera = true } label: {
+                ZStack {
+                    Circle()
+                        .stroke(
+                            LinearGradient(colors: [REColors.blue, REColors.accent],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing),
+                            lineWidth: 4
+                        )
+                        .frame(width: 250, height: 250)
+                    Circle().fill(REColors.bgCard).frame(width: 236, height: 236)
+                    VStack(spacing: RE.s8) {
+                        Image(systemName: "viewfinder")
+                            .font(.system(size: 48, weight: .ultraLight))
+                            .foregroundColor(REColors.blue)
+                        Text("Tap to scan")
+                            .font(REFont.small)
+                            .foregroundColor(REColors.textDim)
+                    }
+                }
             }
-            .foregroundColor(REColors.accent)
-            .padding(.horizontal, RESpacing.md)
-            .padding(.vertical, RESpacing.sm)
-            .background(REColors.accentSubtle)
-            .cornerRadius(RERadius.pill)
+
+            Spacer().frame(height: RE.s48)
+
+            Text("Point your camera at any vehicle")
+                .font(REFont.body).foregroundColor(REColors.textSec)
+            Text("or choose from your library")
+                .font(REFont.caption).foregroundColor(REColors.textDim)
+                .padding(.top, RE.s4)
+
+            Spacer().frame(height: RE.s32)
+
+            HStack(spacing: RE.s48) {
+                PhotosPicker(selection: $photoItem, matching: .images) {
+                    VStack(spacing: RE.s8) {
+                        Image(systemName: "photo").font(.system(size: 22, weight: .light)).foregroundColor(REColors.textSec)
+                        Text("Photos").font(REFont.small).foregroundColor(REColors.textDim)
+                    }
+                }
+                Button { showVideoPicker = true } label: {
+                    VStack(spacing: RE.s8) {
+                        Image(systemName: "video").font(.system(size: 22, weight: .light)).foregroundColor(REColors.textSec)
+                        Text("Video").font(REFont.small).foregroundColor(REColors.textDim)
+                    }
+                }
+            }
         }
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: - IDLE (scan home)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private var idleContent: some View {
-        VStack(spacing: RESpacing.lg) {
-            // Stats
-            statsRow
-                .padding(.horizontal, RESpacing.lg)
-
-            // Recent scans
-            if !vm.savedDetections.isEmpty {
-                recentScansStrip
-            }
-
-            Spacer().frame(height: RESpacing.lg)
-
-            // Scan ring
-            scanRing
-
-            Text("Tap to open camera for photo or video")
-                .font(REFonts.caption)
-                .foregroundColor(REColors.textMuted)
-
-            Spacer().frame(height: RESpacing.lg)
-
-            // Library buttons
-            libraryButtons
-                .padding(.horizontal, RESpacing.lg)
-        }
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ═══════════════════════════════════════════════════
     // MARK: - LOADING
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ═══════════════════════════════════════════════════
 
-    private var loadingContent: some View {
-        VStack(spacing: RESpacing.lg) {
-            // Show the image being analysed
-            if let image = vm.capturedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 280)
-                    .cornerRadius(RERadius.md)
-                    .padding(.horizontal, RESpacing.lg)
+    private var loadingView: some View {
+        VStack(spacing: RE.s24) {
+            if let img = vm.capturedImage {
+                Image(uiImage: img).resizable().scaledToFit()
+                    .frame(maxHeight: 320).cornerRadius(RE.r12)
+                    .padding(.horizontal, RE.s16).padding(.top, RE.s16)
             }
-
-            VStack(spacing: RESpacing.md) {
-                ProgressView()
-                    .tint(REColors.brandBlue)
-                    .scaleEffect(1.2)
-                Text("Identifying vehicle…")
-                    .font(REFonts.callout)
-                    .foregroundColor(REColors.textSecondary)
-            }
-            .frame(maxWidth: .infinity)
-            .reCard()
-            .padding(.horizontal, RESpacing.lg)
+            ProgressView().tint(REColors.blue)
+            Text("Identifying…").font(REFont.label).foregroundColor(REColors.textSec)
         }
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ═══════════════════════════════════════════════════
     // MARK: - PHOTO RESULT
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ═══════════════════════════════════════════════════
 
-    private var photoResultContent: some View {
-        VStack(spacing: RESpacing.lg) {
-            // Image
-            if let image = vm.capturedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 280)
-                    .cornerRadius(RERadius.md)
-                    .padding(.horizontal, RESpacing.lg)
+    private var photoResultView: some View {
+        VStack(spacing: RE.s16) {
+            if let img = vm.capturedImage {
+                Image(uiImage: img).resizable().scaledToFit()
+                    .frame(maxHeight: 320).cornerRadius(RE.r12)
+                    .padding(.horizontal, RE.s16).padding(.top, RE.s8)
             }
-
-            // Result card
             if let output = vm.classifier.lastOutput {
-                resultCard(output)
-                    .padding(.horizontal, RESpacing.lg)
+                resultSection(output).padding(.horizontal, RE.s16)
             }
-
-            // Status message
-            if let msg = vm.statusMessage {
-                Text(msg)
-                    .font(REFonts.caption)
-                    .foregroundColor(REColors.textMuted)
-                    .padding(.horizontal, RESpacing.lg)
-            }
-
-            // Bottom actions
-            bottomActions
-                .padding(.horizontal, RESpacing.lg)
         }
     }
 
     @ViewBuilder
-    private func resultCard(_ output: ClassificationOutput) -> some View {
-        if showCorrectionPicker {
-            // Correction mode — show top 3
+    private func resultSection(_ output: ClassificationOutput) -> some View {
+        if showCorrection {
             SuggestionPickerView(
-                output: output,
-                headerText: "What is the correct vehicle?",
-                onSelect: { label, confidence in
-                    vm.saveDetectionWithLabel(label, confidence: confidence)
-                    showCorrectionPicker = false
-                },
-                onSkip: {
-                    vm.skipDetection()
-                    showCorrectionPicker = false
-                }
-            )
-            .reCard()
+                output: output, headerText: "What is the correct vehicle?",
+                onSelect: { l, c in vm.saveDetectionWithLabel(l, confidence: c) },
+                onSaveUnknown: { vm.saveAsUnknown() },
+                onSkip: { vm.skipDetection() }
+            ).reCard()
         } else if !output.isVehicle || output.tier == .tooLow || output.tier == .low || output.isAmbiguous {
-            // Low confidence / uncertain — always show top 3
             SuggestionPickerView(
-                output: buildPickerOutput(output),
-                headerText: suggestionHeaderText(output),
-                onSelect: { label, confidence in
-                    vm.saveDetectionWithLabel(label, confidence: confidence)
-                },
-                onSkip: {
-                    vm.skipDetection()
-                }
-            )
-            .reCard()
+                output: usableOutput(output), headerText: headerFor(output),
+                onSelect: { l, c in vm.saveDetectionWithLabel(l, confidence: c) },
+                onSaveUnknown: { vm.saveAsUnknown() },
+                onSkip: { vm.skipDetection() }
+            ).reCard()
         } else {
-            // High confidence — clean display
-            highConfidenceCard(output)
+            confidentCard(output)
         }
     }
 
-    /// Build a usable output for the picker even when isVehicle is false
-    private func buildPickerOutput(_ output: ClassificationOutput) -> ClassificationOutput {
-        if output.top3.isEmpty { return output }
-        return ClassificationOutput(
-            label: output.top3[0].label,
-            confidence: output.top3[0].confidence,
-            tier: output.tier,
-            top3: output.top3,
-            isAmbiguous: output.isAmbiguous,
-            isVehicle: true
-        )
+    private func usableOutput(_ o: ClassificationOutput) -> ClassificationOutput {
+        guard !o.top3.isEmpty else { return o }
+        return ClassificationOutput(label: o.top3[0].label, confidence: o.top3[0].confidence,
+                                    tier: o.tier, top3: o.top3, isAmbiguous: o.isAmbiguous, isVehicle: true)
     }
 
-    private func suggestionHeaderText(_ output: ClassificationOutput) -> String {
-        if !output.isVehicle {
-            return "We're not sure there's a vehicle here — but could it be one of these?"
-        }
-        if output.tier == .tooLow {
-            return "This was a tough one — here are our best guesses:"
-        }
-        return "We think it might be one of these:"
+    private func headerFor(_ o: ClassificationOutput) -> String {
+        if !o.isVehicle { return "Not sure there's a vehicle — but could it be:" }
+        if o.tier == .tooLow { return "Tough one — our best guesses:" }
+        return "We think it might be:"
     }
 
-    private func highConfidenceCard(_ output: ClassificationOutput) -> some View {
-        VStack(spacing: RESpacing.md) {
-            // Confidence
-            HStack(spacing: RESpacing.sm) {
-                Circle().fill(REColors.confHigh).frame(width: 10, height: 10)
-                Text("\(Int(output.confidence * 100))% confidence")
-                    .font(REFonts.caption)
-                    .foregroundColor(REColors.confHigh)
-            }
+    private func confidentCard(_ output: ClassificationOutput) -> some View {
+        let confColor = REColors.displayConf(output.confidence)
+        return VStack(spacing: RE.s16) {
+            Text("\(Int(output.confidence * 100))% match")
+                .font(REFont.caption).foregroundColor(confColor)
+                .padding(.horizontal, RE.s12).padding(.vertical, RE.s4)
+                .background(confColor.opacity(0.1)).cornerRadius(100)
 
-            // Vehicle name
-            Text(output.label)
-                .font(REFonts.title)
-                .foregroundColor(REColors.textPrimary)
-                .multilineTextAlignment(.center)
+            Text(output.label).font(REFont.title).foregroundColor(REColors.text).multilineTextAlignment(.center)
 
             if output.isAmbiguous, output.top3.count >= 2 {
-                Text("Also possible: \(output.top3[1].label)")
-                    .font(REFonts.caption)
-                    .foregroundColor(REColors.textMuted)
+                Text("or \(output.top3[1].label)").font(REFont.caption).foregroundColor(REColors.textDim)
             }
 
-            // Action buttons
             if !vm.photoSaved && !vm.photoSkipped {
-                HStack(spacing: RESpacing.md) {
-                    Button("Don't Save") {
-                        vm.skipDetection()
-                    }
-                    .buttonStyle(RESecondaryButton())
-
-                    Button("Save") {
-                        vm.savePhotoDetection()
-                    }
-                    .buttonStyle(REPrimaryButton(color: REColors.brandBlue))
+                VStack(spacing: RE.s8) {
+                    Button("Save Detection") { vm.savePhotoDetection() }.buttonStyle(REPrimaryButton())
+                    Button("Don't Save") { vm.skipDetection() }.buttonStyle(REDestructiveButton())
+                    Button { showCorrection = true } label: {
+                        HStack(spacing: RE.s8) {
+                            Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 12))
+                            Text("Not right? Tap to correct").font(REFont.label)
+                        }
+                        .foregroundColor(REColors.accent)
+                        .padding(.horizontal, RE.s16).padding(.vertical, RE.s8)
+                        .background(REColors.accent.opacity(0.1)).cornerRadius(100)
+                    }.padding(.top, RE.s4)
                 }
-
-                Button("Not right? Tap to correct") {
-                    showCorrectionPicker = true
-                }
-                .font(REFonts.caption)
-                .foregroundColor(REColors.accent)
-                .padding(.top, RESpacing.xs)
             }
 
             if vm.photoSaved {
-                HStack(spacing: RESpacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(REColors.success)
-                    Text("Saved")
-                        .font(REFonts.callout)
-                        .foregroundColor(REColors.success)
+                HStack(spacing: RE.s8) {
+                    Image(systemName: "checkmark.circle.fill").foregroundColor(REColors.success)
+                    Text("Saved").font(REFont.label).foregroundColor(REColors.success)
                 }
             }
-
             if vm.photoSkipped {
-                Text("Skipped")
-                    .font(REFonts.caption)
-                    .foregroundColor(REColors.textMuted)
+                Text("Not saved").font(REFont.caption).foregroundColor(REColors.textDim)
             }
         }
-        .reCard()
+        .padding(.vertical, RE.s8)
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: - VIDEO PROCESSING
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ═══════════════════════════════════════════════════
+    // MARK: - VIDEO PROGRESS
+    // ═══════════════════════════════════════════════════
 
-    private var videoProcessingContent: some View {
-        VStack(spacing: RESpacing.lg) {
-            if let url = vm.selectedVideoURL {
-                VideoPlayer(player: AVPlayer(url: url))
-                    .frame(height: 200)
-                    .cornerRadius(RERadius.md)
-                    .padding(.horizontal, RESpacing.lg)
+    private var videoProgressView: some View {
+        VStack(spacing: RE.s16) {
+            if let u = vm.selectedVideoURL {
+                VideoPlayer(player: AVPlayer(url: u))
+                    .frame(height: 180).cornerRadius(RE.r12)
+                    .padding(.horizontal, RE.s16).padding(.top, RE.s8)
             }
-
-            VStack(spacing: RESpacing.sm) {
+            VStack(spacing: RE.s12) {
+                ProgressView(value: vm.videoProgress, total: vm.videoTotal).tint(REColors.accent)
                 HStack {
-                    Text("Scanning video…")
-                        .font(REFonts.caption)
-                        .foregroundColor(REColors.textSecondary)
+                    Text("Scanning for vehicles…").font(REFont.label).foregroundColor(REColors.textSec)
                     Spacer()
-                    Text("\(Int(vm.videoProgress))/\(Int(vm.videoTotal))")
-                        .font(REFonts.mono)
-                        .foregroundColor(REColors.textMuted)
+                    Text("\(Int(vm.videoProgress)) of \(Int(vm.videoTotal))").font(REFont.small).foregroundColor(REColors.textDim)
                 }
-                ProgressView(value: vm.videoProgress, total: vm.videoTotal)
-                    .tint(REColors.accent)
-
                 if !vm.videoDetections.isEmpty {
-                    Text("\(vm.videoDetections.count) vehicle\(vm.videoDetections.count == 1 ? "" : "s") found")
-                        .font(REFonts.caption)
-                        .foregroundColor(REColors.accent)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: RE.s8) {
+                        Image(systemName: "car.fill").font(.system(size: 12)).foregroundColor(REColors.accent)
+                        Text("\(vm.videoDetections.count) found so far").font(REFont.label).foregroundColor(REColors.accent)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }
-            .reCard()
-            .padding(.horizontal, RESpacing.lg)
+            }.padding(.horizontal, RE.s16)
 
-            // Live detections
-            ForEach(Array(vm.videoDetections.enumerated()), id: \.offset) { _, det in
-                videoRow(det)
-                    .padding(.horizontal, RESpacing.lg)
-            }
-        }
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: - VIDEO RESULT
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private var videoResultContent: some View {
-        VStack(spacing: RESpacing.lg) {
-            if let url = vm.selectedVideoURL {
-                VideoPlayer(player: AVPlayer(url: url))
-                    .frame(height: 200)
-                    .cornerRadius(RERadius.md)
-                    .padding(.horizontal, RESpacing.lg)
-            }
-
-            VStack(alignment: .leading, spacing: RESpacing.sm) {
-                Text("Vehicles Detected")
-                    .font(REFonts.headline)
-                    .foregroundColor(REColors.textPrimary)
-
-                ForEach(Array(vm.videoDetections.enumerated()), id: \.offset) { _, det in
-                    videoRow(det)
-                }
-            }
-            .padding(.horizontal, RESpacing.lg)
-
-            if let msg = vm.statusMessage {
-                Text(msg)
-                    .font(REFonts.caption)
-                    .foregroundColor(REColors.textMuted)
-                    .padding(.horizontal, RESpacing.lg)
-            }
-
-            if vm.showAudioPrompt {
-                audioCard
-                    .padding(.horizontal, RESpacing.lg)
-            }
-
-            bottomActions
-                .padding(.horizontal, RESpacing.lg)
-        }
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: - SHARED COMPONENTS
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private var scanRing: some View {
-        Button { showCamera = true } label: {
-            ZStack {
-                Circle()
-                    .stroke(REColors.brandBlue.opacity(0.15), lineWidth: 2)
-                    .frame(width: 170, height: 170)
-                Circle()
-                    .stroke(
-                        LinearGradient(colors: [REColors.brandBlue, REColors.accent],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing),
-                        lineWidth: 4
-                    )
-                    .frame(width: 150, height: 150)
-                Circle()
-                    .fill(REColors.bgSecondary)
-                    .frame(width: 138, height: 138)
-                VStack(spacing: RESpacing.sm) {
-                    Image(systemName: "viewfinder")
-                        .font(.system(size: 30, weight: .light))
-                        .foregroundColor(REColors.brandBlue)
-                    Text("Tap to Scan")
-                        .font(REFonts.caption)
-                        .foregroundColor(REColors.textSecondary)
-                }
-            }
-        }
-    }
-
-    private var statsRow: some View {
-        HStack(spacing: RESpacing.sm) {
-            statPill("checkmark.circle", "\(vm.savedDetections.filter { $0.synced == 1 }.count)", "synced")
-            statPill("icloud.slash", "\(vm.savedDetections.filter { $0.synced == 0 }.count)", "pending")
-            statPill("trophy", "\(BadgeService.shared.badges.filter { $0.earned }.count)", "badges")
-        }
-    }
-
-    private func statPill(_ icon: String, _ value: String, _ label: String) -> some View {
-        HStack(spacing: RESpacing.xs) {
-            Image(systemName: icon).font(.system(size: 10)).foregroundColor(REColors.brandBlueLight)
-            Text(value).font(REFonts.caption).foregroundColor(REColors.textPrimary).fontWeight(.semibold)
-            Text(label).font(REFonts.caption2).foregroundColor(REColors.textMuted)
-        }
-        .padding(.horizontal, RESpacing.sm)
-        .padding(.vertical, RESpacing.sm)
-        .frame(maxWidth: .infinity)
-        .background(REColors.bgSecondary)
-        .cornerRadius(RERadius.sm)
-    }
-
-    private var recentScansStrip: some View {
-        VStack(alignment: .leading, spacing: RESpacing.sm) {
-            Text("Recent")
-                .font(REFonts.caption)
-                .foregroundColor(REColors.textMuted)
-                .padding(.horizontal, RESpacing.lg)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: RESpacing.sm) {
-                    ForEach(vm.savedDetections.prefix(5)) { det in
-                        HStack(spacing: RESpacing.xs) {
-                            Circle()
-                                .fill(REColors.forTier(ConfidenceTier.tier(for: det.confidence)))
-                                .frame(width: 6, height: 6)
-                            Text(det.vehicleLabel)
-                                .font(REFonts.caption2)
-                                .foregroundColor(REColors.textPrimary)
-                                .lineLimit(1)
+            if !vm.videoDetections.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: RE.s8) {
+                        ForEach(vm.videoDetections) { det in
+                            if let thumb = det.thumbnail {
+                                Image(uiImage: thumb)
+                                    .resizable().scaledToFill()
+                                    .frame(width: 72, height: 50).cornerRadius(RE.r8).clipped()
+                            }
                         }
-                        .padding(.horizontal, RESpacing.md)
-                        .padding(.vertical, RESpacing.sm)
-                        .background(REColors.bgSecondary)
-                        .cornerRadius(RERadius.pill)
+                    }.padding(.horizontal, RE.s16)
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // MARK: - VIDEO RESULT
+    // ═══════════════════════════════════════════════════
+
+    private var videoResultView: some View {
+        VStack(spacing: RE.s16) {
+            if vm.videoDetections.isEmpty {
+                VStack(spacing: RE.s16) {
+                    Spacer().frame(height: RE.s32)
+                    Image(systemName: "car.circle")
+                        .font(.system(size: 40, weight: .ultraLight)).foregroundColor(REColors.textDim)
+                    Text(vm.statusMessage ?? "No vehicles detected.")
+                        .font(REFont.body).foregroundColor(REColors.textSec).multilineTextAlignment(.center)
+                }.padding(.horizontal, RE.s16)
+            } else {
+                VStack(alignment: .leading, spacing: RE.s4) {
+                    Text("\(vm.videoDetections.count) Vehicle\(vm.videoDetections.count == 1 ? "" : "s") Found")
+                        .font(REFont.title).foregroundColor(REColors.text)
+                    Text("Review each detection below")
+                        .font(REFont.caption).foregroundColor(REColors.textDim)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, RE.s16).padding(.top, RE.s8)
+
+                ForEach(Array(vm.videoDetections.enumerated()), id: \.element.id) { index, det in
+                    videoDetCard(det, index: index).padding(.horizontal, RE.s16)
+                }
+
+                let unhandled = vm.videoDetections.filter { !$0.handled }.count
+                if unhandled > 1 {
+                    HStack(spacing: RE.s8) {
+                        Button("Save All (\(unhandled))") { vm.saveAllVideoDetections() }
+                            .buttonStyle(REPrimaryButton())
+                        Button("Don't Save All") { vm.skipAllVideoDetections() }
+                            .buttonStyle(REDestructiveButton())
+                    }.padding(.horizontal, RE.s16)
+                }
+
+                if vm.showAudioPrompt {
+                    audioCard.padding(.horizontal, RE.s16)
+                }
+            }
+        }
+    }
+
+    private func videoDetCard(_ det: VideoDetection, index: Int) -> some View {
+        let confColor = REColors.displayConf(det.confidence)
+        return VStack(spacing: RE.s12) {
+            HStack(alignment: .top, spacing: RE.s12) {
+                if let thumb = det.thumbnail {
+                    Image(uiImage: thumb)
+                        .resizable().scaledToFill()
+                        .frame(width: 100, height: 70).cornerRadius(RE.r8).clipped()
+                }
+                VStack(alignment: .leading, spacing: RE.s4) {
+                    Text(det.label).font(REFont.heading).foregroundColor(REColors.text).lineLimit(2)
+                    HStack(spacing: RE.s8) {
+                        Text("\(Int(det.confidence * 100))%").font(REFont.label).foregroundColor(confColor)
+                        Text("·").foregroundColor(REColors.textDim)
+                        Text("at \(vm.fmtTime(det.appearedAt))").font(REFont.caption).foregroundColor(REColors.textDim)
                     }
                 }
-                .padding(.horizontal, RESpacing.lg)
+                Spacer()
+            }
+
+            if det.handled {
+                HStack(spacing: RE.s8) {
+                    if det.saved {
+                        Image(systemName: "checkmark.circle.fill").foregroundColor(REColors.success)
+                        Text("Saved").font(REFont.caption).foregroundColor(REColors.success)
+                    } else {
+                        Text("Not saved").font(REFont.caption).foregroundColor(REColors.textDim)
+                    }
+                    Spacer()
+                }
+            } else {
+                HStack(spacing: RE.s8) {
+                    Button("Save") { vm.saveVideoDetection(at: index) }
+                        .font(REFont.label).foregroundColor(.white)
+                        .padding(.horizontal, RE.s16).padding(.vertical, RE.s8)
+                        .background(REColors.blue).cornerRadius(RE.r8)
+                    Button("Don't Save") { vm.skipVideoDetection(at: index) }
+                        .font(REFont.label).foregroundColor(.white)
+                        .padding(.horizontal, RE.s16).padding(.vertical, RE.s8)
+                        .background(REColors.destructive).cornerRadius(RE.r8)
+                }
             }
         }
+        .padding(RE.s12).background(REColors.bgCard).cornerRadius(RE.r12)
     }
 
-    private var libraryButtons: some View {
-        HStack(spacing: RESpacing.md) {
-            PhotosPicker(selection: $photoPickerItem, matching: .images) {
-                libLabel("photo.on.rectangle", "Photo Library")
-            }
-            Button { showVideoPicker = true } label: {
-                libLabel("film.stack", "Video Library")
-            }
-        }
-    }
+    // ═══════════════════════════════════════════════════
+    // MARK: - FOOTER
+    // ═══════════════════════════════════════════════════
 
-    private func libLabel(_ icon: String, _ text: String) -> some View {
-        HStack(spacing: RESpacing.sm) {
-            Image(systemName: icon).font(.system(size: 14)).foregroundColor(REColors.brandBlueLight)
-            Text(text).font(REFonts.caption).foregroundColor(REColors.textSecondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, RESpacing.md)
-        .background(REColors.bgElevated)
-        .cornerRadius(RERadius.md)
-    }
-
-    private var bottomActions: some View {
-        HStack(spacing: RESpacing.md) {
+    private var footer: some View {
+        HStack(spacing: RE.s12) {
             Button {
-                showCorrectionPicker = false
-                vm.returnToScan()
-                showCamera = true
+                showCorrection = false; vm.returnToScan(); showCamera = true
             } label: {
-                HStack(spacing: RESpacing.sm) {
-                    Image(systemName: "viewfinder")
-                    Text("Scan Again")
-                }
+                HStack(spacing: RE.s8) { Image(systemName: "viewfinder"); Text("Scan Again") }
             }
-            .buttonStyle(REPrimaryButton(color: REColors.brandBlue))
+            .buttonStyle(REPrimaryButton(color: Color(hex: "2D6FD9")))
 
-            PhotosPicker(selection: $photoPickerItem, matching: .images) {
-                HStack(spacing: RESpacing.sm) {
-                    Image(systemName: "photo")
-                    Text("Library")
-                }
-                .font(REFonts.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, RESpacing.md)
-                .background(REColors.bgElevated)
-                .foregroundColor(REColors.textPrimary)
-                .cornerRadius(RERadius.md)
-                .overlay(
-                    RoundedRectangle(cornerRadius: RERadius.md)
-                        .stroke(REColors.brandBlueDark, lineWidth: 1)
-                )
+            PhotosPicker(selection: $photoItem, matching: .images) {
+                HStack(spacing: RE.s8) { Image(systemName: "photo"); Text("Library") }
+                    .font(REFont.heading)
+                    .frame(maxWidth: .infinity).padding(.vertical, 14)
+                    .background(REColors.bgInput).foregroundColor(REColors.textSec)
+                    .cornerRadius(RE.r12)
             }
         }
+        .padding(.horizontal, RE.s16).padding(.vertical, RE.s8).background(REColors.bg)
     }
 
-    private func videoRow(_ det: (label: String, confidence: Double, appearedAt: Double)) -> some View {
-        HStack(spacing: RESpacing.md) {
-            ZStack {
-                Circle().fill(REColors.accentSubtle).frame(width: 36, height: 36)
-                Image(systemName: "car.fill").foregroundColor(REColors.accent).font(.system(size: 14))
-            }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(det.label)
-                    .font(REFonts.body).fontWeight(.semibold)
-                    .foregroundColor(REColors.textPrimary).lineLimit(2)
-                Text("\(Int(det.confidence * 100))%")
-                    .font(REFonts.caption)
-                    .foregroundColor(REColors.forTier(ConfidenceTier.tier(for: det.confidence)))
-            }
-            Spacer()
-            Text(vm.formatVideoTime(det.appearedAt))
-                .font(REFonts.mono)
-                .foregroundColor(REColors.accent)
-        }
-        .padding(RESpacing.md)
-        .background(REColors.bgSecondary)
-        .cornerRadius(RERadius.md)
-    }
+    // ═══════════════════════════════════════════════════
+    // MARK: - SMALL COMPONENTS
+    // ═══════════════════════════════════════════════════
 
     private var audioCard: some View {
         Button { showAudioSheet = true } label: {
-            HStack(spacing: RESpacing.md) {
-                Image(systemName: "waveform")
-                    .foregroundColor(REColors.brandBlue)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Contribute audio data")
-                        .font(REFonts.callout).foregroundColor(REColors.textPrimary)
-                    Text("Help improve RevEye's accuracy")
-                        .font(REFonts.caption).foregroundColor(REColors.textSecondary)
+            HStack(spacing: RE.s12) {
+                Image(systemName: "waveform").foregroundColor(REColors.blueLight)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Contribute audio data").font(REFont.label).foregroundColor(REColors.textSec)
+                    Text("Help improve vehicle identification").font(REFont.small).foregroundColor(REColors.textDim)
                 }
                 Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11)).foregroundColor(REColors.textMuted)
+                Image(systemName: "chevron.right").font(.system(size: 10)).foregroundColor(REColors.textDim)
             }
-            .padding(RESpacing.md)
-            .background(REColors.bgSecondary)
-            .cornerRadius(RERadius.md)
+            .padding(RE.s12).background(REColors.bgCard).cornerRadius(RE.r12)
         }
     }
-}
 
-// MARK: - Badge Toast
-
-struct BadgeToastView: View {
-    let badge: Badge
-    var body: some View {
-        HStack(spacing: RESpacing.md) {
-            Text(badge.emoji).font(.system(size: 24))
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Badge Unlocked!")
-                    .font(REFonts.caption).foregroundColor(REColors.accent).fontWeight(.semibold)
-                Text(badge.title)
-                    .font(REFonts.callout).foregroundColor(REColors.textPrimary).fontWeight(.bold)
+    private func toastView(_ b: Badge) -> some View {
+        HStack(spacing: RE.s12) {
+            Text(b.emoji).font(.system(size: 22))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Badge Unlocked!").font(REFont.small).foregroundColor(REColors.accent)
+                Text(b.title).font(REFont.heading).foregroundColor(REColors.text)
             }
             Spacer()
         }
-        .padding(RESpacing.md)
-        .background(REColors.bgSecondary)
-        .cornerRadius(RERadius.lg)
-        .overlay(RoundedRectangle(cornerRadius: RERadius.lg).stroke(REColors.accent.opacity(0.3), lineWidth: 1))
-        .padding(.horizontal, RESpacing.lg)
+        .padding(RE.s12).background(.ultraThinMaterial).cornerRadius(RE.r12)
+        .padding(.horizontal, RE.s16)
     }
 }

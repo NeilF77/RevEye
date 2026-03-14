@@ -2,6 +2,14 @@
 //  DetectionDetailView.swift
 //  RevEye
 //
+//  Created by user on 14/03/2026.
+//
+
+
+//
+//  DetectionDetailView.swift
+//  RevEye
+//
 //  Created 14/03/2026 — full detection detail with saved image
 
 import SwiftUI

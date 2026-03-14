@@ -2,199 +2,195 @@
 //  HistoryView.swift
 //  RevEye
 //
-//  Created 12/03/2026 — UI overhaul
-//  Replaces CollectionView. Card-based detection history with themed styling.
-//  Accessible from the History tab in MainTabView.
+//  UI overhaul v8 — no floating sync button, integrated banner only
 
 import SwiftUI
 
 struct HistoryView: View {
     @Binding var detections: [Detection]
-
     @State private var isSyncing = false
-    @State private var syncMessage: String?
+    @State private var syncMsg: String?
     private let db = DatabaseManager.shared
+
+    private var unsyncedCount: Int { detections.filter { $0.synced == 0 }.count }
+
+    private var grouped: [(String, [Detection])] {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "MMMM yyyy"
+        let iso = ISO8601DateFormatter()
+
+        var dict: [String: [Detection]] = [:]
+        var order: [String] = []
+
+        for det in detections {
+            let key: String
+            if let date = iso.date(from: det.timestamp) {
+                key = fmt.string(from: date)
+            } else { key = "Unknown" }
+            if dict[key] == nil { order.append(key) }
+            dict[key, default: []].append(det)
+        }
+        return order.map { ($0, dict[$0]!) }
+    }
 
     var body: some View {
         NavigationView {
             ZStack {
-                REColors.bgPrimary.ignoresSafeArea()
+                REColors.bg.ignoresSafeArea()
 
                 if detections.isEmpty {
-                    emptyState
+                    emptyView
                 } else {
-                    detectionsList
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: RE.s24) {
+
+                            // Sync banner — only when items are pending
+                            if unsyncedCount > 0 {
+                                syncBanner.padding(.horizontal, RE.s16)
+                            }
+
+                            ForEach(grouped, id: \.0) { month, dets in
+                                VStack(alignment: .leading, spacing: RE.s12) {
+                                    Text(month)
+                                        .font(.system(size: 22, weight: .bold))
+                                        .foregroundColor(REColors.text)
+                                        .padding(.horizontal, RE.s16)
+                                        .padding(.top, RE.s8)
+
+                                    ForEach(dets) { det in
+                                        NavigationLink {
+                                            DetectionDetailView(detection: det) {
+                                                if let id = det.id {
+                                                    db.deleteDetection(id: id)
+                                                    detections = db.fetchAllDetections()
+                                                }
+                                            }
+                                        } label: {
+                                            detRow(det)
+                                        }
+                                        .padding(.horizontal, RE.s16)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.top, RE.s8)
+                        .padding(.bottom, RE.s48)
+                    }
                 }
             }
             .navigationTitle("History")
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: RESpacing.md) {
-                        Button {
-                            syncUnsynced()
-                        } label: {
-                            if isSyncing {
-                                ProgressView().tint(REColors.accent)
-                            } else {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                    .foregroundColor(REColors.accent)
-                            }
-                        }
-                        .disabled(isSyncing)
-                    }
-                }
-            }
-            .onAppear {
-                detections = db.fetchAllDetections()
-            }
+            .onAppear { detections = db.fetchAllDetections() }
         }
     }
 
-    // MARK: - Empty State
-
-    private var emptyState: some View {
-        VStack(spacing: RESpacing.lg) {
-            Image(systemName: "car.circle")
-                .font(.system(size: 56))
-                .foregroundColor(REColors.textMuted)
+    private var emptyView: some View {
+        VStack(spacing: RE.s16) {
+            Image(systemName: "viewfinder")
+                .font(.system(size: 40, weight: .ultraLight))
+                .foregroundColor(REColors.textDim)
             Text("No detections yet")
-                .font(REFonts.headline)
-                .foregroundColor(REColors.textSecondary)
-            Text("Identified vehicles will appear here.\nHead to Scan to get started.")
-                .font(REFonts.caption)
-                .foregroundColor(REColors.textMuted)
-                .multilineTextAlignment(.center)
+                .font(REFont.heading).foregroundColor(REColors.textSec)
+            Text("Scan your first vehicle to start your collection")
+                .font(REFont.caption).foregroundColor(REColors.textDim)
         }
     }
 
-    // MARK: - Detections List
+    private var syncBanner: some View {
+        HStack(spacing: RE.s12) {
+            Image(systemName: "icloud.and.arrow.up")
+                .foregroundColor(REColors.accent).font(.system(size: 14))
 
-    private var detectionsList: some View {
-        ScrollView {
-            LazyVStack(spacing: RESpacing.sm) {
-                // Summary
-                HStack {
-                    Text("\(detections.count) detection\(detections.count == 1 ? "" : "s")")
-                        .font(REFonts.caption)
-                        .foregroundColor(REColors.textMuted)
-                    Spacer()
-                    if let msg = syncMessage {
-                        Text(msg)
-                            .font(REFonts.caption2)
-                            .foregroundColor(REColors.textMuted)
-                    }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(unsyncedCount) detection\(unsyncedCount == 1 ? "" : "s") not synced")
+                    .font(REFont.label).foregroundColor(REColors.text)
+                if let m = syncMsg {
+                    Text(m).font(REFont.small).foregroundColor(REColors.textDim)
                 }
-                .padding(.horizontal, RESpacing.lg)
-                .padding(.top, RESpacing.sm)
-
-                ForEach(detections) { det in
-                    detectionCard(det)
-                        .padding(.horizontal, RESpacing.lg)
-                }
-            }
-            .padding(.bottom, RESpacing.xl)
-        }
-    }
-
-    // MARK: - Detection Card
-
-    private func detectionCard(_ det: Detection) -> some View {
-        HStack(spacing: RESpacing.md) {
-            // Vehicle icon with confidence colour
-            ZStack {
-                Circle()
-                    .fill(REColors.forTier(ConfidenceTier.tier(for: det.confidence)).opacity(0.15))
-                    .frame(width: 44, height: 44)
-                Image(systemName: "car.fill")
-                    .foregroundColor(REColors.forTier(ConfidenceTier.tier(for: det.confidence)))
-                    .font(.system(size: 18))
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack {
-                    Text(det.vehicleLabel)
-                        .font(REFonts.headline)
-                        .foregroundColor(REColors.textPrimary)
-                        .lineLimit(2)
-
-                    if det.audioSampleId != nil {
-                        Image(systemName: "waveform")
-                            .font(.system(size: 10))
-                            .foregroundColor(REColors.brandBlue)
-                    }
-                }
-
-                Text("\(Int(det.confidence * 100))% confidence")
-                    .font(REFonts.caption)
-                    .foregroundColor(REColors.forTier(ConfidenceTier.tier(for: det.confidence)))
             }
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 3) {
-                // Sync status
-                Image(systemName: det.synced == 1 ? "checkmark.icloud" : "icloud.slash")
-                    .font(.system(size: 12))
-                    .foregroundColor(det.synced == 1 ? REColors.brandBlue : REColors.accent)
-
-                Text(formatWallTime(det.timestamp))
-                    .font(REFonts.caption2)
-                    .foregroundColor(REColors.textMuted)
-            }
-        }
-        .padding(RESpacing.md)
-        .background(REColors.bgSecondary)
-        .cornerRadius(RERadius.md)
-        .contextMenu {
-            Button(role: .destructive) {
-                if let id = det.id {
-                    db.deleteDetection(id: id)
-                    detections = db.fetchAllDetections()
-                }
+            Button {
+                syncAll()
             } label: {
-                Label("Delete", systemImage: "trash")
+                if isSyncing {
+                    ProgressView().tint(REColors.bg)
+                        .frame(width: 60, height: 28)
+                } else {
+                    Text("Sync")
+                        .font(REFont.small).fontWeight(.semibold)
+                        .foregroundColor(REColors.bg)
+                        .padding(.horizontal, RE.s12).padding(.vertical, RE.s4)
+                        .background(REColors.accent).cornerRadius(100)
+                }
             }
+            .disabled(isSyncing)
         }
+        .padding(RE.s12)
+        .background(REColors.bgCard)
+        .cornerRadius(RE.r12)
     }
 
-    // MARK: - Sync
+    private func detRow(_ det: Detection) -> some View {
+        let confColor = REColors.displayConf(det.confidence)
+        let hasImage = det.id != nil && ImageStore.exists(for: det.id!)
 
-    private func syncUnsynced() {
-        let unsynced = db.fetchUnsyncedDetections()
-        guard !unsynced.isEmpty else {
-            syncMessage = "All synced"
-            return
-        }
-        isSyncing = true
-        syncMessage = nil
-
-        let group = DispatchGroup()
-        var successCount = 0
-
-        for det in unsynced {
-            group.enter()
-            FirebaseService.shared.uploadDetection(det, source: .photo) { success in
-                if success { successCount += 1 }
-                group.leave()
+        return HStack(spacing: RE.s12) {
+            if hasImage, let id = det.id, let img = ImageStore.load(for: id) {
+                Image(uiImage: img)
+                    .resizable().scaledToFill()
+                    .frame(width: 48, height: 36)
+                    .cornerRadius(RE.r8).clipped()
+            } else {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(confColor)
+                    .frame(width: 3, height: 32)
             }
-        }
 
-        group.notify(queue: .main) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: RE.s4) {
+                    Text(det.vehicleLabel)
+                        .font(REFont.body).foregroundColor(REColors.text).lineLimit(1)
+                    if det.audioSampleId != nil {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 9)).foregroundColor(REColors.blueLight)
+                    }
+                }
+                HStack(spacing: RE.s8) {
+                    Text("\(Int(det.confidence * 100))%")
+                        .font(REFont.small).foregroundColor(confColor)
+                    Text("·").foregroundColor(REColors.textDim)
+                    Text(fmtDate(det.timestamp))
+                        .font(REFont.small).foregroundColor(REColors.textDim)
+                }
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11)).foregroundColor(REColors.textDim)
+        }
+        .padding(.vertical, RE.s8)
+    }
+
+    private func syncAll() {
+        let un = db.fetchUnsyncedDetections()
+        guard !un.isEmpty else { syncMsg = "All synced"; return }
+        isSyncing = true; syncMsg = nil
+        let g = DispatchGroup(); var ok = 0
+        for d in un { g.enter(); FirebaseService.shared.uploadDetection(d) { s in if s { ok += 1 }; g.leave() } }
+        g.notify(queue: .main) {
             detections = db.fetchAllDetections()
             isSyncing = false
-            syncMessage = "\(successCount)/\(unsynced.count) synced"
+            syncMsg = ok == un.count ? "All synced!" : "\(ok)/\(un.count) synced"
         }
     }
 
-    // MARK: - Helpers
-
-    private func formatWallTime(_ iso: String) -> String {
-        let parser = ISO8601DateFormatter()
-        guard let date = parser.date(from: iso) else { return iso }
-        let fmt = DateFormatter()
-        fmt.dateStyle = .short
-        fmt.timeStyle = .short
-        return fmt.string(from: date)
+    private func fmtDate(_ iso: String) -> String {
+        let p = ISO8601DateFormatter()
+        guard let d = p.date(from: iso) else { return iso }
+        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short
+        return f.string(from: d)
     }
 }

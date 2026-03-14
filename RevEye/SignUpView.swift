@@ -2,6 +2,14 @@
 //  SignUpView.swift
 //  RevEye
 //
+//  Created by user on 14/03/2026.
+//
+
+
+//
+//  SignUpView.swift
+//  RevEye
+//
 //  Created 13/03/2026 — proper sign up flow
 
 import SwiftUI

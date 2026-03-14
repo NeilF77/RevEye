@@ -2,26 +2,29 @@
 //  RevEyeApp.swift
 //  RevEye
 //
-//  Created by user on 10/11/2025.
-//  Updated 12/03/2026 — routes to MainTabView (tab navigation)
+//  UI overhaul v8 — onboarding on first launch
 
 import SwiftUI
-import FirebaseCore
+import Firebase
 
 @main
 struct RevEyeApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    @StateObject private var auth = AuthService.shared
+    @ObservedObject private var auth = AuthService.shared
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     var body: some Scene {
         WindowGroup {
-            if auth.user == nil {
-                LoginView()
-                    .preferredColorScheme(.dark)
-            } else {
-                MainTabView()
-                    .preferredColorScheme(.dark)
+            Group {
+                if auth.user == nil {
+                    LoginView()
+                } else if !hasCompletedOnboarding {
+                    OnboardingView(hasCompletedOnboarding: $hasCompletedOnboarding)
+                } else {
+                    MainTabView()
+                }
             }
+            .preferredColorScheme(.dark)
         }
     }
 }

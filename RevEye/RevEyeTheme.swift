@@ -2,169 +2,136 @@
 //  RevEyeTheme.swift
 //  RevEye
 //
-//  Created 12/03/2026 — UI overhaul
-//  Single source of truth for all visual styling.
+//  UI overhaul v5 — deeper red, sign up support
 
 import SwiftUI
 
-// MARK: - Colour Palette
-
 struct REColors {
-    // Backgrounds
-    static let bgPrimary     = Color(hex: "0D1B2A")   // Deep navy
-    static let bgSecondary   = Color(hex: "1B2838")   // Dark slate (cards)
-    static let bgElevated    = Color(hex: "1E293B")   // Charcoal (inputs, surfaces)
-    static let bgTertiary    = Color(hex: "253347")   // Slightly lighter (hover/press states)
+    static let bg          = Color(hex: "0F1923")
+    static let bgCard      = Color(hex: "172030")
+    static let bgInput     = Color(hex: "1C2738")
 
-    // Brand
-    static let brandBlue     = Color(hex: "3B82F6")   // Electric blue — primary CTA
-    static let brandBlueLight = Color(hex: "60A5FA")   // Secondary blue
-    static let brandBlueDark = Color(hex: "1E3A5F")   // Subtle blue (borders, dividers)
+    static let blue        = Color(hex: "3B82F6")
+    static let blueLight   = Color(hex: "60A5FA")
+    static let blueMuted   = Color(hex: "1D3557")
 
-    // Accent (the standout colour)
-    static let accent        = Color(hex: "F59E0B")   // Amber/Orange
-    static let accentLight   = Color(hex: "FBBF24")   // Lighter amber
-    static let accentSubtle  = Color(hex: "F59E0B").opacity(0.15)
+    static let accent      = Color(hex: "E8910D")
 
-    // Confidence
-    static let confHigh      = Color(hex: "10B981")   // Emerald green
-    static let confMedium    = Color(hex: "F59E0B")   // Amber
-    static let confLow       = Color(hex: "FB923C")   // Orange
-    static let confNone      = Color(hex: "6B7280")   // Grey
+    // Display confidence colours (40% / 70% UI thresholds)
+    static let confGreen   = Color(hex: "34D399")
+    static let confOrange  = Color(hex: "E8910D")
+    static let confRed     = Color(hex: "A63D3D")   // muted red for low confidence
+    static let confNone    = Color(hex: "64748B")
 
     // Text
-    static let textPrimary   = Color(hex: "F1F5F9")   // Off-white
-    static let textSecondary = Color(hex: "94A3B8")   // Cool grey
-    static let textMuted     = Color(hex: "64748B")   // Muted
+    static let text        = Color.white
+    static let textSec     = Color(hex: "CBD5E1")
+    static let textDim     = Color(hex: "7B8BA3")
 
     // Semantic
-    static let success       = Color(hex: "10B981")
-    static let warning       = Color(hex: "FBBF24")
-    static let error         = Color(hex: "EF4444")
+    static let success     = Color(hex: "34D399")
+    static let error       = Color(hex: "EF4444")
 
-    // Helper: map ConfidenceTier → colour
+    // Destructive — deeper, richer dark red
+    static let destructive     = Color(hex: "7F2D2D")   // button background
+    static let destructiveText = Color(hex: "E57373")   // text-only (warmer, less pink)
+
+    static func displayConf(_ confidence: Double) -> Color {
+        let pct = confidence * 100
+        if pct >= 70 { return confGreen }
+        if pct >= 40 { return confOrange }
+        return confRed
+    }
+
     static func forTier(_ tier: ConfidenceTier) -> Color {
         switch tier {
-        case .high:   return confHigh
-        case .low:    return confMedium
+        case .high:   return confGreen
+        case .low:    return confOrange
         case .tooLow: return confNone
         }
     }
 }
 
-// MARK: - Typography Scale
-
-struct REFonts {
-    static let largeTitle  = Font.system(size: 28, weight: .bold)
-    static let title       = Font.system(size: 22, weight: .bold)
-    static let title3      = Font.system(size: 18, weight: .semibold)
-    static let headline    = Font.system(size: 16, weight: .semibold)
-    static let body        = Font.system(size: 15, weight: .regular)
-    static let callout     = Font.system(size: 14, weight: .medium)
-    static let caption     = Font.system(size: 12, weight: .regular)
-    static let caption2    = Font.system(size: 11, weight: .regular)
-    static let mono        = Font.system(size: 14, weight: .medium, design: .monospaced)
+struct REFont {
+    static let title    = Font.system(size: 22, weight: .bold)
+    static let heading  = Font.system(size: 17, weight: .semibold)
+    static let body     = Font.system(size: 15, weight: .regular)
+    static let label    = Font.system(size: 14, weight: .medium)
+    static let caption  = Font.system(size: 13, weight: .regular)
+    static let small    = Font.system(size: 12, weight: .regular)
+    static let mono     = Font.system(size: 13, weight: .medium, design: .monospaced)
 }
 
-// MARK: - Spacing Scale
-
-struct RESpacing {
-    static let xs:  CGFloat = 4
-    static let sm:  CGFloat = 8
-    static let md:  CGFloat = 12
-    static let lg:  CGFloat = 16
-    static let xl:  CGFloat = 20
-    static let xxl: CGFloat = 28
-    static let xxxl: CGFloat = 40
+struct RE {
+    static let s4:  CGFloat = 4
+    static let s8:  CGFloat = 8
+    static let s12: CGFloat = 12
+    static let s16: CGFloat = 16
+    static let s24: CGFloat = 24
+    static let s32: CGFloat = 32
+    static let s48: CGFloat = 48
+    static let r8:  CGFloat = 8
+    static let r12: CGFloat = 12
+    static let r16: CGFloat = 16
 }
-
-// MARK: - Corner Radii
-
-struct RERadius {
-    static let sm:  CGFloat = 8
-    static let md:  CGFloat = 12
-    static let lg:  CGFloat = 16
-    static let xl:  CGFloat = 20
-    static let pill: CGFloat = 100
-}
-
-// MARK: - Hex Colour Initializer
 
 extension Color {
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: .alphanumerics.inverted)
         var int: UInt64 = 0
         Scanner(string: hex).scanHexInt64(&int)
-        let r = Double((int >> 16) & 0xFF) / 255.0
-        let g = Double((int >> 8)  & 0xFF) / 255.0
-        let b = Double(int         & 0xFF) / 255.0
-        self.init(red: r, green: g, blue: b)
+        self.init(
+            red:   Double((int >> 16) & 0xFF) / 255,
+            green: Double((int >> 8)  & 0xFF) / 255,
+            blue:  Double(int         & 0xFF) / 255
+        )
     }
 }
 
-// MARK: - Reusable Button Styles
-
-/// Primary action button — electric blue, full width
 struct REPrimaryButton: ButtonStyle {
-    var color: Color = REColors.brandBlue
-    var isDisabled: Bool = false
-
+    var color: Color = REColors.blue
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(REFonts.headline)
+            .font(REFont.heading)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, RESpacing.md)
-            .background(isDisabled ? REColors.bgTertiary : color)
-            .foregroundColor(isDisabled ? REColors.textMuted : .white)
-            .cornerRadius(RERadius.md)
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .padding(.vertical, 14)
+            .background(color)
+            .foregroundColor(.white)
+            .cornerRadius(RE.r12)
+            .opacity(configuration.isPressed ? 0.85 : 1)
     }
 }
 
-/// Secondary / outlined button
 struct RESecondaryButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(REFonts.callout)
+            .font(REFont.label)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, RESpacing.md)
-            .background(REColors.bgElevated)
-            .foregroundColor(REColors.textPrimary)
-            .cornerRadius(RERadius.md)
-            .overlay(
-                RoundedRectangle(cornerRadius: RERadius.md)
-                    .stroke(REColors.brandBlueDark, lineWidth: 1)
-            )
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .padding(.vertical, 14)
+            .background(REColors.bgInput)
+            .foregroundColor(REColors.textSec)
+            .cornerRadius(RE.r12)
+            .opacity(configuration.isPressed ? 0.85 : 1)
     }
 }
 
-/// Small pill-shaped button for inline actions
-struct REPillButton: ButtonStyle {
-    var color: Color = REColors.accent
-
+struct REDestructiveButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(REFonts.caption)
-            .padding(.horizontal, RESpacing.md)
-            .padding(.vertical, RESpacing.sm)
-            .background(color.opacity(configuration.isPressed ? 0.7 : 0.15))
-            .foregroundColor(color)
-            .cornerRadius(RERadius.pill)
-    }
-}
-
-// MARK: - Reusable Card Modifier
-
-struct RECardModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .padding(RESpacing.lg)
-            .background(REColors.bgSecondary)
-            .cornerRadius(RERadius.lg)
+            .font(REFont.heading)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(REColors.destructive)
+            .foregroundColor(.white)
+            .cornerRadius(RE.r12)
+            .opacity(configuration.isPressed ? 0.85 : 1)
     }
 }
 
 extension View {
-    func reCard() -> some View { modifier(RECardModifier()) }
+    func reCard() -> some View {
+        self.padding(RE.s16)
+            .background(REColors.bgCard)
+            .cornerRadius(RE.r16)
+    }
 }

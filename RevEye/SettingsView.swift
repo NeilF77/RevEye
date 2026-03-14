@@ -2,6 +2,14 @@
 //  SettingsView.swift
 //  RevEye
 //
+//  Created by user on 14/03/2026.
+//
+
+
+//
+//  SettingsView.swift
+//  RevEye
+//
 //  Created 13/03/2026 — settings page
 
 import SwiftUI

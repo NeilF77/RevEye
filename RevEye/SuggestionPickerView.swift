@@ -2,8 +2,7 @@
 //  SuggestionPickerView.swift
 //  RevEye
 //
-//  Created 12/03/2026 — UI overhaul
-//  Top-3 predictions with confidence %, "Not sure" option, clean layout.
+//  UI overhaul v5
 
 import SwiftUI
 
@@ -11,151 +10,139 @@ struct SuggestionPickerView: View {
     let output: ClassificationOutput
     let headerText: String
     let onSelect: (String, Double) -> Void
+    let onSaveUnknown: (() -> Void)?
     let onSkip: (() -> Void)?
 
-    @State private var selectedIndex: Int? = nil
-    @State private var confirmed = false
+    @State private var picked: Int? = nil
+    @State private var done = false
 
     init(output: ClassificationOutput,
          headerText: String = "Which of these looks right?",
          onSelect: @escaping (String, Double) -> Void,
+         onSaveUnknown: (() -> Void)? = nil,
          onSkip: (() -> Void)? = nil) {
         self.output = output
         self.headerText = headerText
         self.onSelect = onSelect
+        self.onSaveUnknown = onSaveUnknown
         self.onSkip = onSkip
     }
 
     var body: some View {
-        VStack(spacing: RESpacing.md) {
-            // Header
+        VStack(alignment: .leading, spacing: RE.s16) {
+
             Text(headerText)
-                .font(REFonts.callout)
-                .foregroundColor(REColors.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(REFont.label)
+                .foregroundColor(REColors.textSec)
 
-            // Top-3 cards
-            ForEach(Array(output.top3.prefix(3).enumerated()), id: \.offset) { index, prediction in
-                suggestionRow(
-                    index: index,
-                    label: prediction.label,
-                    confidence: prediction.confidence,
-                    isTopPick: index == 0
-                )
+            ForEach(Array(output.top3.prefix(3).enumerated()), id: \.offset) { i, pred in
+                optionRow(i, pred.label, pred.confidence, i == 0)
             }
 
-            // Not sure
-            Button {
-                if !confirmed { selectedIndex = -1 }
-            } label: {
-                HStack(spacing: RESpacing.md) {
-                    Image(systemName: selectedIndex == -1 ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 20))
-                        .foregroundColor(selectedIndex == -1 ? REColors.confNone : REColors.textMuted)
-                    Text("I'm not sure / None of these")
-                        .font(REFonts.body)
-                        .foregroundColor(REColors.textSecondary)
-                    Spacer()
-                }
-                .padding(RESpacing.md)
-                .background(selectedIndex == -1 ? REColors.bgTertiary : Color.clear)
-                .cornerRadius(RERadius.sm)
-            }
-            .disabled(confirmed)
+            notSureRow
 
-            // Action buttons
-            if !confirmed {
-                HStack(spacing: RESpacing.md) {
-                    // Skip / Don't save
-                    if let onSkip {
-                        Button("Don't Save") { onSkip() }
-                            .buttonStyle(RESecondaryButton())
-                    }
-
-                    // Confirm
-                    if selectedIndex != nil {
-                        Button(selectedIndex == -1 ? "Save Best Guess" : "Confirm & Save") {
-                            confirmSelection()
+            if !done {
+                VStack(spacing: RE.s8) {
+                    if picked != nil {
+                        Button(picked == -1 ? "Save as Unknown" : "Save Selection") {
+                            confirm()
                         }
                         .buttonStyle(REPrimaryButton(color: REColors.accent))
                     }
+
+                    if let onSkip {
+                        Button {
+                            onSkip()
+                        } label: {
+                            Text("Don't Save")
+                                .font(REFont.label)
+                                .foregroundColor(REColors.destructiveText)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                        }
+                    }
                 }
             }
 
-            // Confirmed feedback
-            if confirmed {
-                HStack(spacing: RESpacing.sm) {
+            if done {
+                HStack(spacing: RE.s8) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(REColors.success)
-                    Text("Saved — thanks for helping RevEye learn!")
-                        .font(REFonts.caption)
+                        .font(.system(size: 14))
+                    Text(picked == -1 ? "Saved as unknown" : "Saved — thanks for helping RevEye learn!")
+                        .font(REFont.caption)
                         .foregroundColor(REColors.success)
                 }
-                .padding(.top, RESpacing.xs)
             }
         }
     }
 
-    // MARK: - Row
+    private func optionRow(_ index: Int, _ label: String, _ conf: Double, _ isTop: Bool) -> some View {
+        let sel = picked == index
+        let confColor = REColors.displayConf(conf)
 
-    private func suggestionRow(index: Int, label: String, confidence: Double, isTopPick: Bool) -> some View {
-        let isSelected = selectedIndex == index
-        return Button {
-            if !confirmed { selectedIndex = index }
-        } label: {
-            HStack(spacing: RESpacing.md) {
-                // Radio
-                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                    .font(.system(size: 20))
-                    .foregroundColor(isSelected ? REColors.accent : REColors.brandBlueDark)
+        return Button { if !done { picked = index } } label: {
+            HStack(spacing: RE.s12) {
+                Circle()
+                    .stroke(sel ? REColors.accent : REColors.textDim, lineWidth: 1.5)
+                    .frame(width: 18, height: 18)
+                    .overlay(Circle().fill(sel ? REColors.accent : Color.clear).frame(width: 10, height: 10))
 
-                // Label
                 VStack(alignment: .leading, spacing: 2) {
                     Text(label)
-                        .font(REFonts.body)
-                        .fontWeight(.semibold)
-                        .foregroundColor(REColors.textPrimary)
+                        .font(REFont.body)
+                        .foregroundColor(REColors.text)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
+                    if isTop {
+                        Text("Best match")
+                            .font(REFont.small)
+                            .foregroundColor(confColor)
+                    }
                 }
 
                 Spacer()
 
-                // Confidence + best match tag
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(Int(confidence * 100))%")
-                        .font(REFonts.title3)
-                        .foregroundColor(REColors.forTier(ConfidenceTier.tier(for: confidence)))
-                        .monospacedDigit()
-                    if isTopPick {
-                        Text("Best match")
-                            .font(REFonts.caption2)
-                            .foregroundColor(REColors.accent)
-                    }
-                }
+                Text("\(Int(conf * 100))%")
+                    .font(REFont.label)
+                    .foregroundColor(confColor)
+                    .monospacedDigit()
             }
-            .padding(RESpacing.md)
-            .background(isSelected ? REColors.bgTertiary : REColors.bgElevated)
-            .cornerRadius(RERadius.md)
-            .overlay(
-                RoundedRectangle(cornerRadius: RERadius.md)
-                    .stroke(isSelected ? REColors.accent.opacity(0.6) : Color.clear, lineWidth: 1.5)
-            )
+            .padding(.vertical, RE.s12)
+            .padding(.horizontal, RE.s12)
+            .background(sel ? REColors.accent.opacity(0.06) : Color.clear)
+            .cornerRadius(RE.r8)
         }
-        .disabled(confirmed)
+        .disabled(done)
     }
 
-    // MARK: - Confirm
+    private var notSureRow: some View {
+        let sel = picked == -1
+        return Button { if !done { picked = -1 } } label: {
+            HStack(spacing: RE.s12) {
+                Circle()
+                    .stroke(sel ? REColors.confNone : REColors.textDim, lineWidth: 1.5)
+                    .frame(width: 18, height: 18)
+                    .overlay(Circle().fill(sel ? REColors.confNone : Color.clear).frame(width: 10, height: 10))
+                Text("None of these / Unknown")
+                    .font(REFont.body)
+                    .foregroundColor(REColors.textSec)
+                Spacer()
+            }
+            .padding(.vertical, RE.s8)
+            .padding(.horizontal, RE.s12)
+        }
+        .disabled(done)
+    }
 
-    private func confirmSelection() {
-        guard let index = selectedIndex else { return }
-        confirmed = true
-        if index == -1 {
-            let top = output.top3[0]
-            onSelect(top.label, top.confidence)
-        } else if index < output.top3.count {
-            let pick = output.top3[index]
-            onSelect(pick.label, pick.confidence)
+    private func confirm() {
+        guard let i = picked else { return }
+        done = true
+        if i == -1 {
+            onSaveUnknown?()
+        } else if i < output.top3.count {
+            let p = output.top3[i]
+            onSelect(p.label, p.confidence)
         }
     }
 }

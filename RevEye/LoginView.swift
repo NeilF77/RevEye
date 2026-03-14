@@ -2,8 +2,7 @@
 //  LoginView.swift
 //  RevEye
 //
-//  Created by user on 07/02/2026.
-//  Rethemed 12/03/2026 — dark blue + orange to match app
+//  UI overhaul v5 — navigates to SignUpView
 
 import SwiftUI
 
@@ -12,140 +11,101 @@ struct LoginView: View {
     @State private var password = ""
     @State private var errorMessage: String?
     @State private var isLoading = false
-
     @ObservedObject private var auth = AuthService.shared
 
     var body: some View {
-        ZStack {
-            REColors.bgPrimary.ignoresSafeArea()
+        NavigationStack {
+            ZStack {
+                REColors.bg.ignoresSafeArea()
 
-            VStack(spacing: RESpacing.xl) {
-                Spacer()
+                VStack(spacing: 0) {
+                    Spacer()
 
-                // ── Branding ──────────────────────────────────
-                VStack(spacing: RESpacing.sm) {
-                    // App icon / scan ring motif
-                    ZStack {
-                        Circle()
-                            .stroke(
-                                LinearGradient(
-                                    colors: [REColors.brandBlue, REColors.accent],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 4
-                            )
-                            .frame(width: 80, height: 80)
-                        Image(systemName: "car.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(REColors.brandBlue)
-                    }
-
+                    // Brand
                     Text("RevEye")
-                        .font(REFonts.largeTitle)
-                        .foregroundColor(REColors.textPrimary)
-
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(REColors.text)
                     Text("Vehicle Identifier")
-                        .font(REFonts.caption)
-                        .foregroundColor(REColors.textMuted)
-                }
+                        .font(REFont.caption)
+                        .foregroundColor(REColors.textDim)
+                        .padding(.top, RE.s4)
 
-                Spacer().frame(height: RESpacing.xl)
+                    Spacer().frame(height: RE.s48)
 
-                // ── Input Fields ──────────────────────────────
-                VStack(spacing: RESpacing.md) {
-                    HStack(spacing: RESpacing.md) {
-                        Image(systemName: "envelope")
-                            .foregroundColor(REColors.textMuted)
-                            .frame(width: 20)
-                        TextField("Email", text: $email)
-                            .keyboardType(.emailAddress)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .foregroundColor(REColors.textPrimary)
+                    // Fields
+                    VStack(spacing: RE.s12) {
+                        field("envelope", "Email", $email, secure: false)
+                        field("lock", "Password", $password, secure: true)
                     }
-                    .padding(RESpacing.md)
-                    .background(REColors.bgElevated)
-                    .cornerRadius(RERadius.md)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: RERadius.md)
-                            .stroke(REColors.brandBlueDark, lineWidth: 1)
-                    )
+                    .padding(.horizontal, RE.s24)
 
-                    HStack(spacing: RESpacing.md) {
-                        Image(systemName: "lock")
-                            .foregroundColor(REColors.textMuted)
-                            .frame(width: 20)
-                        SecureField("Password", text: $password)
-                            .foregroundColor(REColors.textPrimary)
+                    if let e = errorMessage {
+                        Text(e)
+                            .font(REFont.caption)
+                            .foregroundColor(REColors.error)
+                            .padding(.top, RE.s12)
+                            .padding(.horizontal, RE.s24)
                     }
-                    .padding(RESpacing.md)
-                    .background(REColors.bgElevated)
-                    .cornerRadius(RERadius.md)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: RERadius.md)
-                            .stroke(REColors.brandBlueDark, lineWidth: 1)
-                    )
-                }
 
-                // ── Error Message ─────────────────────────────
-                if let msg = errorMessage {
-                    Text(msg)
-                        .font(REFonts.caption)
-                        .foregroundColor(REColors.error)
-                        .multilineTextAlignment(.center)
-                }
+                    Spacer().frame(height: RE.s32)
 
-                // ── Login Button ──────────────────────────────
-                Button {
-                    login()
-                } label: {
-                    if isLoading {
-                        ProgressView().tint(.white)
-                    } else {
-                        Text("Sign In")
+                    // Sign In
+                    Button { login() } label: {
+                        if isLoading { ProgressView().tint(.white) }
+                        else { Text("Sign In") }
                     }
-                }
-                .buttonStyle(REPrimaryButton(color: REColors.brandBlue))
-                .disabled(isLoading || email.isEmpty || password.isEmpty)
+                    .buttonStyle(REPrimaryButton())
+                    .disabled(isLoading || email.isEmpty || password.isEmpty)
+                    .padding(.horizontal, RE.s24)
 
-                // ── Register Link ─────────────────────────────
-                Button {
-                    register()
-                } label: {
-                    HStack(spacing: RESpacing.xs) {
-                        Text("New here?")
-                            .foregroundColor(REColors.textMuted)
-                        Text("Create account")
-                            .foregroundColor(REColors.accent)
-                            .fontWeight(.medium)
+                    // Navigate to Sign Up
+                    NavigationLink {
+                        SignUpView()
+                    } label: {
+                        HStack(spacing: RE.s4) {
+                            Text("New here?")
+                                .foregroundColor(REColors.textDim)
+                            Text("Create account")
+                                .foregroundColor(REColors.accent)
+                                .fontWeight(.medium)
+                        }
+                        .font(REFont.label)
                     }
-                    .font(REFonts.callout)
-                }
+                    .padding(.top, RE.s16)
 
-                Spacer()
+                    Spacer()
+                }
             }
-            .padding(.horizontal, RESpacing.xl)
         }
     }
 
-    // MARK: - Actions
+    @ViewBuilder
+    private func field(_ icon: String, _ placeholder: String, _ text: Binding<String>, secure: Bool) -> some View {
+        HStack(spacing: RE.s12) {
+            Image(systemName: icon)
+                .foregroundColor(REColors.textDim)
+                .frame(width: 16)
+            if secure {
+                SecureField(placeholder, text: text)
+                    .foregroundColor(REColors.text)
+            } else {
+                TextField(placeholder, text: text)
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .foregroundColor(REColors.text)
+            }
+        }
+        .padding(RE.s12)
+        .background(REColors.bgInput)
+        .cornerRadius(RE.r12)
+    }
 
     private func login() {
-        errorMessage = nil
-        isLoading = true
-        AuthService.shared.signIn(email: email, password: password) { error in
+        errorMessage = nil; isLoading = true
+        AuthService.shared.signIn(email: email, password: password) { e in
             isLoading = false
-            if let error { errorMessage = error.localizedDescription }
-        }
-    }
-
-    private func register() {
-        errorMessage = nil
-        isLoading = true
-        AuthService.shared.signUp(email: email, password: password) { error in
-            isLoading = false
-            if let error { errorMessage = error.localizedDescription }
+            if let e { errorMessage = e.localizedDescription }
         }
     }
 }

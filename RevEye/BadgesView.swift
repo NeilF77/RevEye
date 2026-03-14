@@ -2,11 +2,9 @@
 //  BadgesView.swift
 //  RevEye
 //
-//  Created by user on 09/03/2026.
-//  Fixed  10/03/2026 — onAppear refreshes from local DB first, not just Firebase
+//  UI overhaul v8 — dark theme, locked badges with hints
 
 import SwiftUI
-import Combine
 
 struct BadgesView: View {
     @ObservedObject private var badgeService = BadgeService.shared
@@ -15,150 +13,102 @@ struct BadgesView: View {
     private var locked: [Badge] { badgeService.badges.filter { !$0.earned } }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+        ZStack {
+            REColors.bg.ignoresSafeArea()
 
-                // MARK: Summary header
-                HStack(spacing: 16) {
-                    ZStack {
-                        Circle()
-                            .fill(LinearGradient(
-                                colors: [.orange, .yellow],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing))
-                            .frame(width: 70, height: 70)
-                        Text("\(earned.count)")
-                            .font(.system(size: 28, weight: .black))
-                            .foregroundColor(.white)
-                    }
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("\(earned.count) of \(badgeService.badges.count) Badges Earned")
-                            .font(.headline)
-                        Text("\(locked.count) still to unlock")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        GeometryReader { geo in
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: RE.s24) {
+
+                    // Progress summary
+                    VStack(spacing: RE.s8) {
+                        HStack {
+                            Text("\(earned.count) of \(badgeService.badges.count) earned")
+                                .font(REFont.heading).foregroundColor(REColors.text)
+                            Spacer()
+                            Text("\(Int(Double(earned.count) / max(1, Double(badgeService.badges.count)) * 100))%")
+                                .font(REFont.mono).foregroundColor(REColors.accent)
+                        }
+                        GeometryReader { g in
                             ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(Color(.systemGray5))
-                                    .frame(height: 8)
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(LinearGradient(
-                                        colors: [.orange, .yellow],
-                                        startPoint: .leading,
-                                        endPoint: .trailing))
-                                    .frame(
-                                        width: badgeService.badges.isEmpty ? 0 :
-                                            geo.size.width * CGFloat(earned.count) / CGFloat(badgeService.badges.count),
-                                        height: 8)
-                                    .animation(.easeInOut(duration: 0.6), value: earned.count)
+                                Capsule().fill(REColors.bgInput).frame(height: 6)
+                                Capsule().fill(REColors.accent)
+                                    .frame(width: badgeService.badges.isEmpty ? 0 :
+                                        g.size.width * CGFloat(earned.count) / CGFloat(badgeService.badges.count), height: 6)
+                            }
+                        }.frame(height: 6)
+                    }
+                    .padding(.horizontal, RE.s16)
+                    .padding(.top, RE.s8)
+
+                    // Earned badges
+                    if !earned.isEmpty {
+                        VStack(alignment: .leading, spacing: RE.s12) {
+                            Text("Earned")
+                                .font(REFont.label).foregroundColor(REColors.textDim)
+                                .padding(.horizontal, RE.s16)
+
+                            ForEach(earned) { badge in
+                                badgeRow(badge, locked: false)
+                                    .padding(.horizontal, RE.s16)
                             }
                         }
-                        .frame(height: 8)
                     }
-                    Spacer()
-                }
-                .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(16)
 
-                // MARK: Earned
-                if !earned.isEmpty {
-                    Text("Earned")
-                        .font(.title3).fontWeight(.bold)
-                        .padding(.horizontal, 4)
+                    // Locked badges
+                    if !locked.isEmpty {
+                        VStack(alignment: .leading, spacing: RE.s12) {
+                            Text("Locked")
+                                .font(REFont.label).foregroundColor(REColors.textDim)
+                                .padding(.horizontal, RE.s16)
 
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                        ForEach(earned) { BadgeCard(badge: $0, isEarned: true) }
+                            ForEach(locked) { badge in
+                                badgeRow(badge, locked: true)
+                                    .padding(.horizontal, RE.s16)
+                            }
+                        }
                     }
-                }
 
-                // MARK: Locked
-                if !locked.isEmpty {
-                    Text("Locked")
-                        .font(.title3).fontWeight(.bold)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 4)
-
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                        ForEach(locked) { BadgeCard(badge: $0, isEarned: false) }
-                    }
+                    Spacer().frame(height: RE.s48)
                 }
             }
-            .padding()
         }
         .navigationTitle("Badges")
-        .onAppear {
-            // KEY FIX: refresh from local DB first, then Firebase.
-            // Previously only called fetchFromFirebase() which could fail silently
-            // and leave the badges array stale.
-            badgeService.refreshBadges()
-        }
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .onAppear { badgeService.refreshBadges() }
     }
-}
 
-// MARK: - Badge Card
+    private func badgeRow(_ badge: Badge, locked: Bool) -> some View {
+        HStack(spacing: RE.s16) {
+            Text(badge.emoji)
+                .font(.system(size: 28))
+                .grayscale(locked ? 0.8 : 0)
+                .opacity(locked ? 0.4 : 1)
 
-private struct BadgeCard: View {
-    let badge: Badge
-    let isEarned: Bool
-    @State private var appeared = false
+            VStack(alignment: .leading, spacing: RE.s4) {
+                Text(badge.title)
+                    .font(REFont.heading)
+                    .foregroundColor(locked ? REColors.textDim : REColors.text)
 
-    var body: some View {
-        VStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(isEarned
-                        ? LinearGradient(colors: [.orange.opacity(0.25), .yellow.opacity(0.15)],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing)
-                        : LinearGradient(colors: [Color(.systemGray5), Color(.systemGray5)],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 64, height: 64)
-
-                Text(badge.emoji)
-                    .font(.system(size: 30))
-                    .grayscale(isEarned ? 0 : 1)
-                    .opacity(isEarned ? 1 : 0.4)
-                    .scaleEffect(isEarned && appeared ? 1.0 : (isEarned ? 0.5 : 1.0))
-                    .animation(.spring(response: 0.4, dampingFraction: 0.6), value: appeared)
-
-                if !isEarned {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .offset(x: 20, y: 20)
-                }
+                Text(badge.description)
+                    .font(REFont.caption)
+                    .foregroundColor(locked ? REColors.textDim.opacity(0.6) : REColors.textSec)
+                    .lineLimit(2)
             }
 
-            Text(badge.title)
-                .font(.caption).fontWeight(.semibold)
-                .multilineTextAlignment(.center)
-                .foregroundColor(isEarned ? .primary : .secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
 
-            Text(badge.description)
-                .font(.caption2)
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if isEarned, let earnedAt = badge.earnedAt,
-               let date = ISO8601DateFormatter().date(from: earnedAt) {
-                Text(date, style: .date)
-                    .font(.caption2)
-                    .foregroundColor(.orange)
+            if !locked {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(REColors.success)
+                    .font(.system(size: 16))
+            } else {
+                Image(systemName: "lock.fill")
+                    .foregroundColor(REColors.textDim.opacity(0.4))
+                    .font(.system(size: 14))
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(isEarned ? Color.orange.opacity(0.4) : Color.clear, lineWidth: 1.5)
-        )
-        .onAppear { appeared = true }
+        .padding(RE.s12)
+        .background(REColors.bgCard)
+        .cornerRadius(RE.r12)
     }
 }
