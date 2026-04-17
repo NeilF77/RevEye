@@ -1,31 +1,17 @@
+// AppDelegate.swift
+// RevEye
 //
-//  AppDelegate.swift
-//  RevEye
-//
-//  Created by user on 28/11/2025.
-//
-
-
-//  AppDelegate.swift
-//  RevEye
-//
-//  Created by user on 28/11/2025.
-//
-// Firebase starter code gotten from firebase website
+// Sets up Firebase when the app first launches. This needs to happen before
+// any Firebase services (auth, database, storage) can be used.
 
 import UIKit
 import FirebaseCore
 
-// AppDelegate handles app lifecycle events - needed because SwiftUI doesn't provide direct access to these
 class AppDelegate: NSObject, UIApplicationDelegate {
-    // Called automatically when app launches - perfect place for Firebase setup
-    func application(
-        _ application: UIApplication,
-        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil
-    ) -> Bool {
-        // Initialize Firebase - reads GoogleService-Info.plist to connect to our Firebase project. Must happen before any Firestore/Auth calls or the app will crash
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+    // Initialise Firebase SDK - must be called before any other Firebase code
         FirebaseApp.configure()
-        print("Firebase configured")
         return true
     }
 }

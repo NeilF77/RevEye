@@ -1,39 +1,37 @@
+// FirebaseService.swift
+// RevEye
 //
-//  FirebaseService.swift
-//  RevEye
-//
-//  Created by user on 28/11/2025.
-//  Updated 10/03/2026 — added audio upload (Firebase Storage + Firestore metadata)
+// Handles uploading detections and audio samples to Firebase Firestore.
+// Uses NWPathMonitor to watch for network connectivity changes and
+// automatically uploads any pending detections when the device comes
+// back online. This is a singleton accessed via FirebaseService.shared.
 
 import Foundation
 import FirebaseAuth
 import FirebaseFirestore
-import FirebaseStorage
 import Network
 
 final class FirebaseService {
     static let shared = FirebaseService()
     private let db = Firestore.firestore()
-    private let storage = Storage.storage()
 
-    // Monitors network reachability so we know when to attempt retries
+    // Network monitor to detect online/offline transitions
     private let monitor = NWPathMonitor()
     private var isOnline = false
 
     private init() {
+    // Watch for network changes. When the device goes from offline to online,
+    // automatically try to upload any detections that are still pending.
         monitor.pathUpdateHandler = { [weak self] path in
             let wasOffline = !(self?.isOnline ?? true)
             self?.isOnline = path.status == .satisfied
-            if wasOffline && self?.isOnline == true {
-                print("Network restored — syncing pending detections")
-                self?.syncAllUnsynced()
-            }
+            if wasOffline && self?.isOnline == true { self?.syncAllUnsynced() }
         }
         monitor.start(queue: DispatchQueue(label: "com.reveye.network"))
     }
 
-    // MARK: - Detection Upload
-
+    // Uploads a single detection to the "detections" Firestore collection.
+    // On success, marks the local SQLite record as synced so it won't be uploaded again.
     func uploadDetection(_ detection: Detection, source: SourceType = .photo,
                          completion: ((Bool) -> Void)? = nil) {
         guard let uid = Auth.auth().currentUser?.uid else {
@@ -48,11 +46,11 @@ final class FirebaseService {
             "sourceType":   source.rawValue
         ]) { error in
             DispatchQueue.main.async {
-                if let error {
-                    print("Firebase upload error: \(error.localizedDescription)")
+                if error != nil {
+                    print("Firebase upload error: \(error!.localizedDescription)")
                     completion?(false)
                 } else {
-                    print("Uploaded \(detection.vehicleLabel) (\(source.rawValue))")
+                    print("Uploaded: \(detection.vehicleLabel) (\(source.rawValue))")
                     if let id = detection.id {
                         DatabaseManager.shared.markAsSynced(id: id)
                     }
@@ -62,12 +60,15 @@ final class FirebaseService {
         }
     }
 
-    // MARK: - Audio Upload
+    // Audio Upload (base64 in Firestore)
 
-    /// Uploads an audio file to Firebase Storage and creates a Firestore metadata document.
-    /// - Parameters:
-    ///   - sample: The local AudioSample with metadata.
-    ///   - completion: Called on main thread with `true` on success.
+    // Reads the local M4A file, base64-encodes it, and stores it directly
+    // in a Firestore document alongside all metadata. No Firebase Storage
+    // (Blaze plan) required. Researchers can browse the audioSamples
+    // collection in the Firebase Console and see everything.
+    //
+    // Typical M4A size: 30-100KB → base64: 40-135KB. Well within the
+    // Firestore 1MB document limit.
     func uploadAudio(_ sample: AudioSample, completion: ((Bool) -> Void)? = nil) {
         guard let uid = Auth.auth().currentUser?.uid,
               let sampleId = sample.id else {
@@ -75,59 +76,40 @@ final class FirebaseService {
         }
 
         let localURL = URL(fileURLWithPath: sample.localFilePath)
-        guard FileManager.default.fileExists(atPath: localURL.path) else {
-            print("Audio file not found at: \(localURL.path)")
+        guard FileManager.default.fileExists(atPath: localURL.path),
+              let audioData = try? Data(contentsOf: localURL) else {
             completion?(false)
             return
         }
 
-        // Storage path: audio/{userId}/{sampleId}_{timestamp}.m4a
-        let storagePath = "audio/\(uid)/\(sampleId)_\(sample.timestamp).m4a"
-        let storageRef = storage.reference().child(storagePath)
+        let base64Audio = audioData.base64EncodedString()
 
-        let metadata = StorageMetadata()
-        metadata.contentType = "audio/m4a"
+        var firestoreData = sample.firestoreData
+        firestoreData["userId"] = uid
+        firestoreData["audioBase64"] = base64Audio       // actual audio data
+        firestoreData["audioFormat"] = "m4a"             // so researchers know the format
+        firestoreData["audioFileSizeBytes"] = audioData.count
 
-        storageRef.putFile(from: localURL, metadata: metadata) { [weak self] _, error in
-            if let error {
-                print("Audio upload error: \(error.localizedDescription)")
-                DispatchQueue.main.async { completion?(false) }
-                return
-            }
-
-            // File uploaded — now create the Firestore metadata document
-            var firestoreData = sample.firestoreData
-            firestoreData["userId"] = uid
-            firestoreData["audioStoragePath"] = storagePath
-
-            self?.db.collection("audioSamples").addDocument(data: firestoreData) { error in
-                DispatchQueue.main.async {
-                    if let error {
-                        print("Audio Firestore error: \(error.localizedDescription)")
-                        completion?(false)
-                    } else {
-                        print("Audio uploaded: \(storagePath)")
-                        DatabaseManager.shared.markAudioAsSynced(id: sampleId, storagePath: storagePath)
-                        completion?(true)
-                    }
+        db.collection("audioSamples").addDocument(data: firestoreData) { error in
+            DispatchQueue.main.async {
+                if error != nil {
+                    completion?(false)
+                } else {
+                    DatabaseManager.shared.markAudioAsSynced(id: sampleId, storagePath: "firestore_base64")
+                    completion?(true)
                 }
             }
         }
     }
 
-    // MARK: - Auto-retry on reconnect
+    // Auto-retry on reconnect
 
     private func syncAllUnsynced() {
         let unsynced = DatabaseManager.shared.fetchUnsyncedDetections()
-        guard !unsynced.isEmpty else { return }
-        print("Auto-syncing \(unsynced.count) pending detection(s)")
-        for det in unsynced {
-            uploadDetection(det, source: .photo)
-        }
+        for det in unsynced { uploadDetection(det, source: .photo) }
     }
 }
 
-// Describes where a detection originated
 enum SourceType: String {
     case photo = "photo"
     case video = "video"

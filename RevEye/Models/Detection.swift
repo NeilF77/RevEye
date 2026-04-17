@@ -1,17 +1,16 @@
+// Detection.swift
+// RevEye
 //
-//  Detection.swift
-//  RevEye
-//
-//  Created by user on 26/11/2025.
-//
+// Represents a single vehicle detection saved by the user.
+// Stored in the local SQLite database and synced to Firebase.
 
 import Foundation
 
 struct Detection: Identifiable {
-    var id: Int64?              // Primary key
-    var vehicleLabel: String    // e.g. "BMW 3 Series"
-    var confidence: Double      // ML confidence score
-    var timestamp: String       // ISO8601 string
-    var synced: Int             // 0 = not synced, 1 = synced
-    var audioSampleId: Int64?   // FK to audioSamples table, nil if no audio attached
+    var id: Int64?              // SQLite primary key (auto-incremented)
+    var vehicleLabel: String    // The predicted vehicle name, e.g. "BMW 3 Series"
+    var confidence: Double      // ML model confidence score between 0 and 1
+    var timestamp: String       // When the detection was made (ISO 8601 format)
+    var synced: Int             // 0 = not yet uploaded to Firebase, 1 = synced
+    var audioSampleId: Int64?   // Links to an audio sample if one was extracted from video
 }

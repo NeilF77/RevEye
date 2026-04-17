@@ -1,95 +1,58 @@
+// Badges.swift
+// RevEye
 //
-//  Badges.swift
-//  RevEye
-//
-//  Created by user on 09/03/2026.
-//
+// Defines the Badge struct and the full list of badges users can earn.
+// Each badge has a unique ID that matches what BadgeService uses to award them.
+// The "earned" field starts as false here — DatabaseManager merges the real
+// state from Firestore on top at runtime.
 
 import Foundation
 
 struct Badge: Identifiable, Codable, Equatable {
-    let id: String
-    let title: String
-    let description: String
-    let emoji: String
-    var earned: Bool
-    var earnedAt: String?   // ISO8601 — nil until earned
+    let id: String          // Unique identifier, e.g. "first_photo", "detections_50"
+    let title: String       // Display name shown to the user
+    let description: String // What the user needs to do to earn it
+    let emoji: String       // Visual representation in the UI
+    var earned: Bool        // Whether the user has earned this badge
+    var earnedAt: String?   // ISO 8601 timestamp of when it was earned, nil if not yet
 }
 
-// All possible badges. `earned` is always false here —
-// DatabaseManager merges the real state on top at runtime.
 extension Badge {
     static let all: [Badge] = [
-        // ── Onboarding ──────────────────────────────────────────────
-        Badge(id: "first_photo",
-              title: "First Scan",
-              description: "Upload your first car photo",
-              emoji: "📸", earned: false),
-        Badge(id: "first_video",
-              title: "Lights, Camera!",
-              description: "Upload your first video",
-              emoji: "🎬", earned: false),
-        Badge(id: "first_save",
-              title: "First in the Garage",
-              description: "Save your first detection",
-              emoji: "🚗", earned: false),
-        Badge(id: "first_sync",
-              title: "Cloud Connected",
-              description: "Sync a detection to the cloud",
-              emoji: "☁️", earned: false),
+    // First steps - these are earned quickly to give new users early wins
+        Badge(id: "first_photo", title: "Ignition", description: "Scan your first vehicle photo", emoji: "🔑", earned: false),
+        Badge(id: "first_video", title: "Dashcam Rolling", description: "Scan your first video", emoji: "🎬", earned: false),
+        Badge(id: "first_save", title: "Garage Opener", description: "Save your first vehicle to your garage", emoji: "🏠", earned: false),
 
-        // ── Milestones ──────────────────────────────────────────────
-        Badge(id: "detections_5",
-              title: "Getting Started",
-              description: "Save 5 detections",
-              emoji: "🔥", earned: false),
-        Badge(id: "detections_25",
-              title: "Car Enthusiast",
-              description: "Save 25 detections",
-              emoji: "🏆", earned: false),
-        Badge(id: "detections_50",
-              title: "Road Warrior",
-              description: "Save 50 detections",
-              emoji: "💯", earned: false),
+    // Collection milestones - progressively harder targets to keep users engaged
+        Badge(id: "detections_5", title: "Collection Started", description: "Save 5 vehicles to your garage", emoji: "🛣️", earned: false),
+        Badge(id: "detections_25", title: "Petrolhead", description: "Save 25 vehicles — you know your cars", emoji: "⛽", earned: false),
+        Badge(id: "detections_50", title: "Grand Tourer", description: "Save 50 vehicles to your garage", emoji: "🏁", earned: false),
+        Badge(id: "detections_100", title: "Living Legend", description: "Save 100 vehicles — you're in a league of your own", emoji: "👑", earned: false),
 
-        // ── Achievement ─────────────────────────────────────────────
-        Badge(id: "high_confidence",
-              title: "Sharp Eye",
-              description: "Get a detection with 60%+ confidence",
-              emoji: "🎯", earned: false),
-        Badge(id: "video_detection",
-              title: "Video Detective",
-              description: "Detect a car through a video scan",
-              emoji: "🕵️", earned: false),
+    // Accuracy and skill - reward good photos and engagement with corrections
+        Badge(id: "high_confidence", title: "Keen Spotter", description: "Get a detection with 60%+ confidence", emoji: "🦅", earned: false),
+        Badge(id: "perfect_shot", title: "Bullseye", description: "Get a detection with 90%+ confidence — perfect angle", emoji: "🎯", earned: false),
+        Badge(id: "correction_hero", title: "Pit Crew", description: "Correct a wrong prediction — helping RevEye learn", emoji: "🔧", earned: false),
+        Badge(id: "video_detection", title: "Rolling Shot", description: "Identify a vehicle from a video scan", emoji: "🎞️", earned: false),
 
-        // ── Time-based ──────────────────────────────────────────────
-        Badge(id: "night_owl",
-              title: "Night Owl",
-              description: "Make a detection after midnight",
-              emoji: "🌙", earned: false),
-        Badge(id: "streak_3",
-              title: "Three-Day Streak",
-              description: "Make detections on 3 consecutive days",
-              emoji: "⚡", earned: false),
+    // Diversity - encourage scanning different brands
+        Badge(id: "unique_makes_5", title: "Mixed Fleet", description: "Discover 5 different car makes", emoji: "🅿️", earned: false),
+        Badge(id: "unique_makes_10", title: "World Tour", description: "Discover 10 different car makes from around the globe", emoji: "🌍", earned: false),
+        Badge(id: "unique_makes_15", title: "Brand Collector", description: "Discover 15 different car makes — a true connoisseur", emoji: "🏅", earned: false),
 
-        // ── Diversity ───────────────────────────────────────────────
-        Badge(id: "unique_makes_5",
-              title: "Variety Spotter",
-              description: "Detect 5 different car makes",
-              emoji: "🌍", earned: false),
-        Badge(id: "unique_makes_10",
-              title: "Global Garage",
-              description: "Detect 10 different car makes",
-              emoji: "🌐", earned: false),
+    // Audio contributions - reward users who help build the sound database
+        Badge(id: "first_audio", title: "Exhaust Note", description: "Contribute your first engine sound", emoji: "🔊", earned: false),
+        Badge(id: "audio_5", title: "Sound Check", description: "Contribute 5 engine sounds to the database", emoji: "🎵", earned: false),
+        Badge(id: "audio_10", title: "Dyno Operator", description: "Contribute 10 engine sounds — fuelling research", emoji: "🎧", earned: false),
 
-        // ── Audio Contributions ─────────────────────────────────────
-        Badge(id: "first_audio",
-              title: "Sound Collector",
-              description: "Contribute your first audio sample",
-              emoji: "🎧", earned: false),
-        Badge(id: "audio_5",
-              title: "Audio Archivist",
-              description: "Contribute 5 audio samples",
-              emoji: "🎵", earned: false),
+    // Time and dedication - streak and unusual usage patterns
+        Badge(id: "night_owl", title: "Midnight Cruise", description: "Scan a vehicle after midnight", emoji: "🌙", earned: false),
+        Badge(id: "streak_3", title: "Three-Day Rally", description: "Scan vehicles on 3 consecutive days", emoji: "⚡", earned: false),
+        Badge(id: "streak_7", title: "Endurance Run", description: "Scan vehicles 7 days in a row — relentless", emoji: "🏆", earned: false),
+
+    // Sharing - encourages social engagement
+        Badge(id: "first_share", title: "Show & Shine", description: "Share your first detection with friends", emoji: "📣", earned: false),
+        Badge(id: "shares_5", title: "Car Show Host", description: "Share 5 detections — spreading the word", emoji: "🎪", earned: false),
     ]
 }

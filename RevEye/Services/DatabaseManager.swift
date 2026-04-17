@@ -1,8 +1,11 @@
+// DatabaseManager.swift
+// RevEye
 //
-//  DatabaseManager.swift
-//  RevEye
-//
-//  Updated 10/03/2026 — added audioSamples table, audio CRUD, streak query
+// The local SQLite database layer. All detections, badges, and audio samples
+// are stored here first, then synced to Firebase when online. This class is
+// a singleton to prevent concurrent database access issues. All database
+// operations run on a serial DispatchQueue to avoid race conditions between
+// the main thread and background video processing.
 
 import Foundation
 import SQLite3
@@ -12,8 +15,9 @@ class DatabaseManager {
 
     private var db: OpaquePointer?
 
-    // All DB work runs on this serial queue, preventing concurrent reads/writes
-    // from the main thread and the video-processing background task colliding.
+    // All database operations run on this serial queue to prevent concurrent
+    // reads and writes from crashing. The main thread and video processing
+    // thread both access the database, so serialisation is essential.
     private let queue = DispatchQueue(label: "com.reveye.db", qos: .utility)
 
     private init() {
@@ -21,8 +25,8 @@ class DatabaseManager {
         createTables()
     }
 
-    // MARK: - Setup
-
+    // Opens the SQLite database file in the app's documents directory.
+    // Creates the file if it doesn't exist yet.
     private func openDatabase() {
         guard let fileURL = try? FileManager.default
             .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -33,12 +37,13 @@ class DatabaseManager {
         if sqlite3_open(fileURL.path, &db) != SQLITE_OK {
             print("DB error: could not open — \(errorMessage)")
         } else {
-            print("Database opened at: \(fileURL.path)")
         }
     }
 
+    // Creates all the tables the app needs if they don't already exist.
+    // Safe to call on every launch — "IF NOT EXISTS" means it won't
+    // overwrite existing data.
     private func createTables() {
-        // ── Detections table ──────────────────────────────────────────
         let createDetections = """
         CREATE TABLE IF NOT EXISTS detections (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,18 +56,11 @@ class DatabaseManager {
         """
         if sqlite3_exec(db, createDetections, nil, nil, nil) != SQLITE_OK {
             print("DB error: could not create detections table — \(errorMessage)")
-        } else {
-            print("detections table ready")
         }
 
-        // ── Badges table ──────────────────────────────────────────────
-        // Migration: if the table exists but has the wrong schema (from an
-        // earlier version), drop and recreate it. This is safe because badge
-        // state is also stored in Firestore and will be re-synced.
         migrateBadgesTableIfNeeded()
         seedBadgesIfNeeded()
 
-        // ── Audio Samples table ───────────────────────────────────────
         let createAudio = """
         CREATE TABLE IF NOT EXISTS audioSamples (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,46 +80,30 @@ class DatabaseManager {
         """
         if sqlite3_exec(db, createAudio, nil, nil, nil) != SQLITE_OK {
             print("DB error: could not create audioSamples table — \(errorMessage)")
-        } else {
-            print("audioSamples table ready")
         }
 
         migrateVehicleModelColumnIfNeeded()
         migrateAudioSampleIdColumn()
     }
 
-    // Inserts a row for every known badge if it doesn't already exist.
+    // Populates the badges table with all badge definitions on first run.
+    // Skips if badges already exist.
     private func seedBadgesIfNeeded() {
-        var seeded = 0
         for badge in Badge.all {
             let sql = "INSERT OR IGNORE INTO badges (id, earned, earnedAt) VALUES (?, 0, NULL);"
             var stmt: OpaquePointer?
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
                 let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
                 sqlite3_bind_text(stmt, 1, badge.id, -1, transient)
-                if sqlite3_step(stmt) == SQLITE_DONE {
-                    seeded += 1
-                }
+                sqlite3_step(stmt)
             }
             sqlite3_finalize(stmt)
         }
-        print("Badge seeding: processed \(Badge.all.count) badges, \(seeded) inserts attempted")
-        
-        // Verify: count rows in badges table
-        let countSQL = "SELECT COUNT(*) FROM badges;"
-        var countStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, countSQL, -1, &countStmt, nil) == SQLITE_OK {
-            if sqlite3_step(countStmt) == SQLITE_ROW {
-                let count = sqlite3_column_int(countStmt, 0)
-                print("Badge seeding: \(count) badges now in table")
-            }
-        }
-        sqlite3_finalize(countStmt)
     }
 
-    /// Checks if the badges table has the correct schema (id, earned, earnedAt).
-    /// If the table exists but is missing the 'earned' column (from an earlier app version),
-    /// drops and recreates it. Safe because Firestore is the cross-device source of truth.
+    // Checks if the badges table has the correct schema (id, earned, earnedAt).
+    // If the table exists with a wrong schema, drops and recreates it.
+    // Safe because Firestore is the source of truth.
     private func migrateBadgesTableIfNeeded() {
         let pragma = "PRAGMA table_info(badges);"
         var stmt: OpaquePointer?
@@ -139,14 +121,10 @@ class DatabaseManager {
         sqlite3_finalize(stmt)
 
         if tableExists && !hasEarned {
-            // Old schema — drop and recreate
-            print("DB migration: badges table has wrong schema, recreating...")
             let drop = "DROP TABLE IF EXISTS badges;"
             sqlite3_exec(db, drop, nil, nil, nil)
         }
 
-        // Create the table (will be created fresh if we just dropped it,
-        // or created new if it never existed, or no-op if schema is correct)
         let createBadges = """
         CREATE TABLE IF NOT EXISTS badges (
             id       TEXT PRIMARY KEY,
@@ -156,11 +134,12 @@ class DatabaseManager {
         """
         if sqlite3_exec(db, createBadges, nil, nil, nil) != SQLITE_OK {
             print("DB error: could not create badges table — \(errorMessage)")
-        } else {
-            print("badges table ready (has 'earned' column: \(!tableExists || hasEarned ? "already" : "recreated"))")
         }
     }
 
+    // Renames the old 'vehicleModel' column to 'vehicleLabel' for existing
+    // installs. SQLite doesn't support ALTER COLUMN RENAME on older iOS
+    // versions, so this recreates the table and copies all data.
     private func migrateVehicleModelColumnIfNeeded() {
         let pragma = "PRAGMA table_info(detections);"
         var stmt: OpaquePointer?
@@ -176,7 +155,6 @@ class DatabaseManager {
         sqlite3_finalize(stmt)
         guard !hasVehicleLabel else { return }
 
-        print("DB migration: renaming vehicleModel → vehicleLabel")
         let migration = """
         BEGIN TRANSACTION;
         CREATE TABLE detections_new (
@@ -195,13 +173,10 @@ class DatabaseManager {
         """
         if sqlite3_exec(db, migration, nil, nil, nil) != SQLITE_OK {
             print("DB migration error: \(errorMessage)")
-        } else {
-            print("DB migration complete")
         }
     }
 
-    /// Adds the audioSampleId column to detections if it doesn't exist yet.
-    /// Safe to run on databases created before the audio feature.
+    // Adds the audioSampleId column to detections if it doesn't exist yet.
     private func migrateAudioSampleIdColumn() {
         let pragma = "PRAGMA table_info(detections);"
         var stmt: OpaquePointer?
@@ -218,20 +193,19 @@ class DatabaseManager {
         guard !hasAudioSampleId else { return }
 
         let alter = "ALTER TABLE detections ADD COLUMN audioSampleId INTEGER;"
-        if sqlite3_exec(db, alter, nil, nil, nil) != SQLITE_OK {
-            print("DB migration (audioSampleId): \(errorMessage)")
-        } else {
-            print("DB migration: added audioSampleId column")
-        }
+        sqlite3_exec(db, alter, nil, nil, nil)
     }
 
+    // Helper to get the last SQLite error message for debugging
     private var errorMessage: String { String(cString: sqlite3_errmsg(db)) }
 }
 
-// MARK: - Detection CRUD
+// Detection CRUD
 
 extension DatabaseManager {
 
+    // Inserts a new detection into SQLite and returns the auto-generated ID.
+    // Returns nil if the insert fails.
     func insertDetection(_ detection: Detection) -> Int64? {
         var newId: Int64?
         queue.sync {
@@ -262,10 +236,12 @@ extension DatabaseManager {
         return newId
     }
 
+    // Fetches all detections, or just unsynced ones for the sync queue
     func fetchAllDetections() -> [Detection] { fetch(where: nil) }
 
     func fetchUnsyncedDetections() -> [Detection] { fetch(where: "synced = 0") }
 
+    // Updates a detection's sync status to 1 (synced) after successful Firebase upload
     func markAsSynced(id: Int64) {
         queue.sync {
             let sql = "UPDATE detections SET synced = 1 WHERE id = ?;"
@@ -279,6 +255,8 @@ extension DatabaseManager {
         }
     }
 
+    // Links an audio sample to a detection by setting the audioSampleId
+    // foreign key on the detection record.
     func linkAudioToDetection(detectionId: Int64, audioSampleId: Int64) {
         queue.sync {
             let sql = "UPDATE detections SET audioSampleId = ? WHERE id = ?;"
@@ -291,6 +269,7 @@ extension DatabaseManager {
         }
     }
 
+    // Deletes a single detection from the database by ID
     func deleteDetection(id: Int64) {
         queue.sync {
             let sql = "DELETE FROM detections WHERE id = ?;"
@@ -304,6 +283,8 @@ extension DatabaseManager {
         }
     }
 
+    // Shared fetch function that runs a SELECT query and maps the results
+    // into Detection structs. Used by fetchAllDetections and fetchUnsyncedDetections.
     private func fetch(where condition: String?) -> [Detection] {
         var results: [Detection] = []
         queue.sync {
@@ -334,10 +315,9 @@ extension DatabaseManager {
         return results
     }
 
-    // MARK: - Streak Query
+    // Streak Query
 
-    /// Returns the number of consecutive calendar days (ending today) that
-    /// have at least one detection. Used for the streak_3 badge.
+    // Returns the number of consecutive days (ending today) with at least one detection.
     func currentStreak() -> Int {
         var dates: Set<String> = []
         queue.sync {
@@ -372,7 +352,7 @@ extension DatabaseManager {
     }
 }
 
-// MARK: - Badge CRUD
+// Badge CRUD
 
 extension DatabaseManager {
 
@@ -405,25 +385,18 @@ extension DatabaseManager {
     }
 
     @discardableResult
+    // Marks a badge as earned in the local database. Returns true if newly earned.
     func earnBadge(id: String) -> Bool {
         var wasNew = false
         queue.sync {
-            // First check if badge row exists and is unearned
             let checkSQL = "SELECT earned FROM badges WHERE id = ?;"
             var checkStmt: OpaquePointer?
             if sqlite3_prepare_v2(db, checkSQL, -1, &checkStmt, nil) == SQLITE_OK {
                 let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
                 sqlite3_bind_text(checkStmt, 1, id, -1, transient)
-                let stepResult = sqlite3_step(checkStmt)
-                if stepResult == SQLITE_ROW {
-                    let currentEarned = sqlite3_column_int(checkStmt, 0)
-                    wasNew = currentEarned == 0
-                    print("DB earnBadge(\(id)): found row, earned=\(currentEarned), wasNew=\(wasNew)")
-                } else {
-                    print("DB earnBadge(\(id)): NO ROW FOUND — badge not seeded! step=\(stepResult)")
+                if sqlite3_step(checkStmt) == SQLITE_ROW {
+                    wasNew = sqlite3_column_int(checkStmt, 0) == 0
                 }
-            } else {
-                print("DB earnBadge(\(id)): prepare failed — \(errorMessage)")
             }
             sqlite3_finalize(checkStmt)
             guard wasNew else { return }
@@ -432,17 +405,13 @@ extension DatabaseManager {
             let sql = "UPDATE badges SET earned = 1, earnedAt = ? WHERE id = ?;"
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-                print("DB error (earnBadge prepare): \(errorMessage)"); wasNew = false; return
+                wasNew = false; return
             }
             defer { sqlite3_finalize(stmt) }
             let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
             sqlite3_bind_text(stmt, 1, earnedAt, -1, transient)
             sqlite3_bind_text(stmt, 2, id,       -1, transient)
-            if sqlite3_step(stmt) != SQLITE_DONE {
-                print("DB error (earnBadge step): \(errorMessage)"); wasNew = false
-            } else {
-                print("DB earnBadge(\(id)): EARNED at \(earnedAt)")
-            }
+            if sqlite3_step(stmt) != SQLITE_DONE { wasNew = false }
         }
         return wasNew
     }
@@ -468,57 +437,41 @@ extension DatabaseManager {
         }
     }
 
-    /// Resets all badges to unearned. Called on logout so the next user
-    /// starts with a clean slate before their badges sync from Firestore.
+    // Resets all badges to unearned. Called on logout so the next user
+    // starts with a clean slate before their badges sync from Firestore.
     func resetAllBadges() {
         queue.sync {
-            let sql = "UPDATE badges SET earned = 0, earnedAt = NULL;"
-            if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
-                print("DB error (resetAllBadges): \(errorMessage)")
-            } else {
-                print("DB: all badges reset to unearned")
-            }
+            sqlite3_exec(db, "UPDATE badges SET earned = 0, earnedAt = NULL;", nil, nil, nil)
         }
     }
 
-    /// Deletes all detections. Called on logout.
+    // Deletes all detections. Called on logout.
     func resetAllDetections() {
         queue.sync {
-            let sql = "DELETE FROM detections;"
-            if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
-                print("DB error (resetAllDetections): \(errorMessage)")
-            } else {
-                print("DB: all detections deleted")
-            }
+            sqlite3_exec(db, "DELETE FROM detections;", nil, nil, nil)
         }
     }
 
-    /// Deletes all audio samples. Called on logout.
+    // Deletes all audio samples. Called on logout.
     func resetAllAudioSamples() {
         queue.sync {
-            let sql = "DELETE FROM audioSamples;"
-            if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
-                print("DB error (resetAllAudioSamples): \(errorMessage)")
-            } else {
-                print("DB: all audio samples deleted")
-            }
+            sqlite3_exec(db, "DELETE FROM audioSamples;", nil, nil, nil)
         }
     }
 
-    /// Wipes all user data from local DB. Called on logout so the next
-    /// account starts with a clean slate.
+    // Wipes all user data from local DB. Called on logout.
     func resetAllUserData() {
         resetAllBadges()
         resetAllDetections()
         resetAllAudioSamples()
-        print("DB: all user data reset for logout")
     }
 }
 
-// MARK: - Audio Sample CRUD
+// Audio Sample CRUD
 
 extension DatabaseManager {
 
+    // Inserts a new audio sample record into SQLite. Returns the auto-generated ID.
     func insertAudioSample(_ sample: AudioSample) -> Int64? {
         var newId: Int64?
         queue.sync {
@@ -602,6 +555,8 @@ extension DatabaseManager {
         }
     }
 
+    // Maps a SQLite result row into an AudioSample struct.
+    // Reads each column by index and converts raw values to the correct types.
     private func audioSampleFromRow(_ stmt: OpaquePointer?) -> AudioSample {
         let fbPath: String? = sqlite3_column_type(stmt, 10) != SQLITE_NULL
             ? String(cString: sqlite3_column_text(stmt!, 10)) : nil
@@ -621,4 +576,5 @@ extension DatabaseManager {
             synced:              Int(sqlite3_column_int(stmt!, 12))
         )
     }
+
 }
