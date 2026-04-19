@@ -29,10 +29,13 @@ struct GarageView: View {
     @State private var sortBy: SortOption = .dateFound
     @State private var filter: GarageFilter = .identified
 
-    // Audio playback state
-    @State private var playingDetectionId: Int64? = nil
-    @State private var audioPlayer: AVAudioPlayer?
+    // Audio playback is delegated to a shared controller so the player
+    // survives row reloads and list re-renders.
+    @StateObject private var playback = AudioPlaybackController()
     @State private var showAudioMissing = false
+
+    // Which detection's audio (if any) is currently playing.
+    private var playingDetectionId: Int64? { playback.currentId as? Int64 }
 
     private static let unknownLabels: Set<String> = ["Unknown Vehicle", "Unknown"]
 
@@ -109,7 +112,7 @@ struct GarageView: View {
 
             
             // Empty state - shown when the user hasn't saved any detections yet
-if detections.isEmpty {
+            if detections.isEmpty {
                 VStack(spacing: RE.s16) {
                     Image(systemName: "car.2.fill")
                         .font(.system(size: 40, weight: .ultraLight))
@@ -147,13 +150,13 @@ HStack(spacing: RE.s8) {
 
                         
                         // Sync banner - shown when detections haven't been uploaded yet
-if unsyncedCount > 0 {
+                        if unsyncedCount > 0 {
                             syncBanner.padding(.horizontal, RE.s16)
                         }
 
                         
                         // Filter toggle between Identified and Unknown vehicles
-HStack(spacing: 0) {
+                        HStack(spacing: 0) {
                             filterTab(.identified, count: identifiedDetections.count)
                             filterTab(.unknown, count: unknownDetections.count)
                         }
@@ -169,7 +172,7 @@ HStack(spacing: RE.s8) {
                                     Image(systemName: "magnifyingglass")
                                         .font(.system(size: 14))
                                         .foregroundColor(REColors.textDim)
-                                    TextField("Search vehicles…", text: $searchText)
+                                    TextField("Search vehicles...", text: $searchText)
                                         .font(REFont.body)
                                         .foregroundColor(REColors.text)
                                     if !searchText.isEmpty {
@@ -209,7 +212,7 @@ HStack(spacing: RE.s8) {
                             .padding(.horizontal, RE.s16)
 
                                                         // Shows current sort mode as a label
-Text("Sorted by \(sortBy.rawValue)")
+                                                        Text("Sorted by \(sortBy.rawValue)")
                                 .font(REFont.small)
                                 .foregroundColor(REColors.textDim)
                                 .padding(.horizontal, RE.s16)
@@ -217,7 +220,7 @@ Text("Sorted by \(sortBy.rawValue)")
 
                         
                         // No results message when search/filter returns nothing
-if filteredDetections.isEmpty {
+                        if filteredDetections.isEmpty {
                             VStack(spacing: RE.s8) {
                                 Text(filter == .unknown ? "No unknown vehicles" : "No results")
                                     .font(REFont.heading).foregroundColor(REColors.textSec)
@@ -230,9 +233,9 @@ if filteredDetections.isEmpty {
                             .padding(.top, RE.s32)
                         } else 
                         // When sorted by date, group detections by month
-if sortBy == .dateFound {
+                        if sortBy == .dateFound {
                                                         // Date-grouped sections with month headers
-ForEach(groupedByMonth, id: \.0) { month, dets in
+                                                        ForEach(groupedByMonth, id: \.0) { month, dets in
                                 VStack(alignment: .leading, spacing: RE.s8) {
                                     Text(month)
                                         .font(.system(size: 18, weight: .bold))
@@ -248,7 +251,7 @@ ForEach(groupedByMonth, id: \.0) { month, dets in
                             }
                         } else {
                                                         // Flat list for confidence and make sorts
-ForEach(filteredDetections) { det in
+                                                        ForEach(filteredDetections) { det in
                                 detRowWithAudio(det)
                                 .padding(.horizontal, RE.s16)
                             }
@@ -261,7 +264,7 @@ ForEach(filteredDetections) { det in
         .navigationTitle("My Garage")
         .toolbarColorScheme(.dark, for: .navigationBar)
         .onAppear { detections = db.fetchAllDetections() }
-        .onDisappear { audioPlayer?.stop(); playingDetectionId = nil }
+        .onDisappear { playback.stop() }
         .alert("Audio File Missing", isPresented: $showAudioMissing) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -271,11 +274,10 @@ ForEach(filteredDetections) { det in
 
     // Audio Playback
 
-    // Plays or stops an audio sample linked to a detection
+    // Plays or stops an audio sample linked to a detection.
     private func toggleAudioPlayback(for detectionId: Int64, audioSampleId: Int64) {
         if playingDetectionId == detectionId {
-            audioPlayer?.stop()
-            playingDetectionId = nil
+            playback.stop()
             return
         }
 
@@ -285,30 +287,13 @@ ForEach(filteredDetections) { det in
             return
         }
 
-        let url = URL(fileURLWithPath: sample.localFilePath)
+        let url = AudioExtractor.resolvedURL(for: sample.localFilePath)
         guard FileManager.default.fileExists(atPath: url.path) else {
             showAudioMissing = true
             return
         }
 
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-            audioPlayer?.stop()
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer?.play()
-            playingDetectionId = detectionId
-
-            let duration = sample.audioDuration > 0 ? sample.audioDuration : 10
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.5) {
-                if playingDetectionId == detectionId {
-                    playingDetectionId = nil
-                }
-            }
-        } catch {
-            print("Garage playback error: \(error.localizedDescription)")
-            playingDetectionId = nil
-        }
+        playback.play(url: url, id: detectionId)
     }
 
     // Detection Row
@@ -346,12 +331,12 @@ HStack(spacing: RE.s8) {
                     if det.vehicleLabel != "Unknown Vehicle" {
                         Text("\(Int(det.confidence * 100))%")
                             .font(REFont.small).foregroundColor(confColor)
-                        Text("·").foregroundColor(REColors.textDim)
+                        Text("|").foregroundColor(REColors.textDim)
                     }
                     Text(fmtDate(det.timestamp))
                         .font(REFont.small).foregroundColor(REColors.textDim)
                     if det.synced == 0 {
-                        Text("·").foregroundColor(REColors.textDim)
+                        Text("|").foregroundColor(REColors.textDim)
                         Image(systemName: "icloud.slash")
                             .font(.system(size: 9)).foregroundColor(REColors.accent)
                     }
@@ -369,7 +354,7 @@ HStack(spacing: RE.s8) {
         .cornerRadius(RE.r8)
     }
 
-    // Detection Row with Audio — wraps NavigationLink + play button side by side
+    // Detection row with audio. Wraps a NavigationLink and a play button side by side.
     // so tapping play doesn't trigger navigation
     private func detRowWithAudio(_ det: Detection) -> some View {
         HStack(spacing: 0) {

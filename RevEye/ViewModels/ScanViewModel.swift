@@ -151,7 +151,7 @@ final class ScanViewModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.returnToScan() }
     }
 
-    // Video: save/skip → audio prompt → home
+    // Video flow: save/skip -> audio prompt -> home
 
     // Info about the most recently saved video detection, for the audio prompt
     @Published var pendingAudioLabel: String?
@@ -247,11 +247,12 @@ final class ScanViewModel: ObservableObject {
             let duration = AudioExtractor.duration(of: audioURL)
             let timestamp = ISO8601DateFormatter().string(from: Date())
 
-            // Move from temp to a permanent location so iOS doesn't delete it
-            let audioDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("RevEyeAudio", isDirectory: true)
-            try? FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
-            let permanentURL = audioDir.appendingPathComponent(audioURL.lastPathComponent)
+            // Move from temp to our managed Documents/RevEyeAudio folder so
+            // iOS doesn't clean it up. Only the filename is stored in the DB;
+            // the full path is rebuilt on read (the sandbox container UUID
+            // changes between installs, so absolute paths go stale).
+            let filename = audioURL.lastPathComponent
+            let permanentURL = AudioExtractor.audioDirectory.appendingPathComponent(filename)
             do {
                 if FileManager.default.fileExists(atPath: permanentURL.path) {
                     try FileManager.default.removeItem(at: permanentURL)
@@ -259,7 +260,7 @@ final class ScanViewModel: ObservableObject {
                 try FileManager.default.copyItem(at: audioURL, to: permanentURL)
                 try? FileManager.default.removeItem(at: audioURL)
             } catch {
-                print("Audio: failed to move to Documents — \(error.localizedDescription)")
+                print("Audio: failed to move to Documents - \(error.localizedDescription)")
                 return
             }
 
@@ -273,7 +274,7 @@ final class ScanViewModel: ObservableObject {
                 vehicleState: vehicleState,
                 backgroundNoise: backgroundNoise,
                 userNotes: "",
-                localFilePath: permanentURL.path,
+                localFilePath: filename,
                 firebaseStoragePath: nil,
                 timestamp: timestamp,
                 synced: 0
@@ -391,7 +392,7 @@ final class ScanViewModel: ObservableObject {
         }
 
         isProcessingVideo = false
-        statusMessage = videoDetections.isEmpty ? "No vehicles detected." : "Vehicle identified — review below."
+        statusMessage = videoDetections.isEmpty ? "No vehicles detected." : "Vehicle identified - review below."
     }
 
     // Consensus Voting
@@ -460,7 +461,7 @@ final class ScanViewModel: ObservableObject {
 
     // Uses Apple's built-in objectness saliency to find the most prominent
     // object in the frame (likely the car), then crops to that region.
-    // Returns nil if saliency detection fails — caller falls back to full frame.
+    // Returns nil if saliency detection fails; caller falls back to full frame.
     private func cropToSalientRegion(_ image: UIImage) -> UIImage? {
         guard let cgImage = image.cgImage else { return nil }
 

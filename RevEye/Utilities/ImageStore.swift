@@ -4,7 +4,7 @@
 // Handles saving, loading, and deleting detection images on disk.
 // Each image is stored as a JPEG file named by its detection ID inside
 // the "detection_images" folder in the app's documents directory.
-// No database entries needed — if the file exists, the image exists.
+// No database entries needed - if the file exists, the image exists.
 
 import UIKit
 
@@ -14,7 +14,7 @@ struct ImageStore {
     private static var directory: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let dir = docs.appendingPathComponent("detection_images", isDirectory: true)
-    // Create the folder if it doesn't exist yet
+        // Create the folder if it doesn't exist yet
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

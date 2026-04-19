@@ -36,7 +36,7 @@ struct ImagePicker: UIViewControllerRepresentable {
         picker.sourceType = sourceType
         picker.delegate = context.coordinator
         picker.allowsEditing = allowsEditing
-    // Camera supports both photo and video; library is photo-only
+        // Camera supports both photo and video; library is photo-only
         if sourceType == .camera {
             picker.mediaTypes = ["public.image", "public.movie"]
             picker.videoMaximumDuration = 60
@@ -59,12 +59,12 @@ struct ImagePicker: UIViewControllerRepresentable {
             let mediaType = info[.mediaType] as? String ?? ""
 
             if mediaType == "public.movie", let url = info[.mediaURL] as? URL {
-                // Video was captured — copy to temp directory since the original is sandboxed
+                // Video was captured - copy to temp directory since the original is sandboxed
                 let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cam_\(UUID().uuidString).mov")
                 try? FileManager.default.copyItem(at: url, to: tmp)
                 parent.onVideoPicked?(tmp)
             } else if let img = info[.editedImage] as? UIImage ?? info[.originalImage] as? UIImage {
-                // Photo selected — prefer the cropped version if editing was enabled
+                // Photo selected - prefer the cropped version if editing was enabled
                 parent.onImagePicked?(img)
             }
 

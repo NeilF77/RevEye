@@ -30,7 +30,7 @@ struct AudioContextSheet: View {
 
                         
                         // Header showing waveform icon and vehicle name
-HStack(spacing: RE.s12) {
+                        HStack(spacing: RE.s12) {
                             Image(systemName: "waveform")
                                 .font(.system(size: 18))
                                 .foregroundColor(REColors.accent)
@@ -48,7 +48,7 @@ HStack(spacing: RE.s12) {
 
                         
                         // Four quick questions about the audio recording conditions
-chipQuestion("Can you hear the engine?",
+                        chipQuestion("Can you hear the engine?",
                                      options: EngineAudible.allCases, selection: $engineAudible) { $0.label }
 
                         // If user says no engine sound, skip the detail questions
@@ -56,7 +56,7 @@ chipQuestion("Can you hear the engine?",
                             chipQuestion("How was it recorded?",
                                          options: RecordingContext.allCases, selection: $recordingContext) { $0.label }
 
-                            chipQuestion("Vehicle was…",
+                            chipQuestion("Vehicle was...",
                                          options: VehicleState.allCases, selection: $vehicleState) { $0.label }
 
                             chipQuestion("Background noise?",
@@ -64,7 +64,7 @@ chipQuestion("Can you hear the engine?",
                         }
 
                         // Submit button
-Button {
+                        Button {
                             if engineAudible == .no {
                                 onSubmit(.no, .other, .unknown, .moderate)
                             } else {

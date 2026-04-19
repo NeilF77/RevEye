@@ -18,7 +18,7 @@ struct ScanView: View {
     @State private var showVideoPicker = false
     @State private var showPhotoLibrary = false
     @State private var showCorrection = false
-    @State private var correctionPick: [Int: Int] = [:]  // detection index → picked option (-1 = unknown)
+    @State private var correctionPick: [Int: Int] = [:]  // detection index -> picked option (-1 = unknown)
     @State private var showScanShareSheet = false
 
     // Computed property that determines which UI state to show based on
@@ -31,7 +31,7 @@ struct ScanView: View {
         return .idle
     }
     // The possible visual states of the scan screen
-private enum VState { case idle, loading, photoResult, videoProg, videoResult }
+    private enum VState { case idle, loading, photoResult, videoProg, videoResult }
 
     var body: some View {
         ZStack {
@@ -41,7 +41,7 @@ private enum VState { case idle, loading, photoResult, videoProg, videoResult }
                 ScrollView(showsIndicators: false) {
                     Group {
                                                 // Show different content depending on what stage of scanning we're in
-switch state {
+                                                switch state {
                         case .idle:        idleView
                         case .loading:     loadingView
                         case .photoResult: photoResultView
@@ -53,13 +53,13 @@ switch state {
                 }
 
                                 // Show the footer bar (Scan Again + Library) when viewing results
-if state == .photoResult || state == .videoResult {
+                                if state == .photoResult || state == .videoResult {
                     footer
                 }
             }
 
                         // Badge earned toast - slides up from the bottom when a badge is awarded
-if vm.showBadgeToast, let b = vm.toastBadge {
+                        if vm.showBadgeToast, let b = vm.toastBadge {
                 VStack {
                     Spacer()
                     toastView(b)
@@ -72,7 +72,7 @@ if vm.showBadgeToast, let b = vm.toastBadge {
         .animation(.easeInOut(duration: 0.3), value: vm.showBadgeToast)
         .onChange(of: vm.scanMode) { _, m in if m == .idle { showCorrection = false } }
                 // Camera sheet - opens the device camera for photo or video capture
-.sheet(isPresented: $showCamera) {
+                .sheet(isPresented: $showCamera) {
             ImagePicker(
                 sourceType: .camera,
                 onImagePicked: { showCorrection = false; vm.handlePickedImage($0) },
@@ -80,7 +80,7 @@ if vm.showBadgeToast, let b = vm.toastBadge {
             )
         }
                 // Photo library sheet - opens the photo library with crop support enabled
-.sheet(isPresented: $showPhotoLibrary) {
+                .sheet(isPresented: $showPhotoLibrary) {
             ImagePicker(
                 sourceType: .photoLibrary,
                 allowsEditing: true,
@@ -88,12 +88,12 @@ if vm.showBadgeToast, let b = vm.toastBadge {
             )
         }
                 // Video picker sheet - lets user select a video from their library
-.sheet(isPresented: $showVideoPicker) {
+                .sheet(isPresented: $showVideoPicker) {
             VideoPicker { showCorrection = false; vm.startVideoProcessing(url: $0) }
         }
                 // Audio context prompt - shown after saving a video detection
     // to collect metadata about the engine sound
-.sheet(isPresented: $vm.showAudioContextPrompt, onDismiss: {
+    .sheet(isPresented: $vm.showAudioContextPrompt, onDismiss: {
             vm.returnToScan()
         }) {
             AudioContextSheet(
@@ -110,8 +110,6 @@ if vm.showBadgeToast, let b = vm.toastBadge {
         }
         .onAppear { vm.refreshDetections() }
     }
-
-    // IDLE — even bigger ring
 
     // Idle state - shown when no scan is in progress. Shows the app name,
     // a large tap-to-scan button, and smaller photo/video options below.
@@ -196,9 +194,9 @@ HStack(spacing: RE.s48) {
                     .padding(.horizontal, RE.s16).padding(.top, RE.s16)
             }
                         // Spinner shown while the ML model is processing
-ProgressView().tint(REColors.blue)
+                        ProgressView().tint(REColors.blue)
                         // Status label during classification
-Text("Identifying…").font(REFont.label).foregroundColor(REColors.textSec)
+                        Text("Identifying...").font(REFont.label).foregroundColor(REColors.textSec)
         }
     }
 
@@ -230,7 +228,7 @@ if vm.photoSaved {
                         .padding(RE.s8)
                         .sheet(isPresented: $showScanShareSheet) {
                             if let output = vm.classifier.lastOutput {
-                                let text = "I spotted a \(output.label) with \(Int(output.confidence * 100))% confidence using RevEye! 🚗"
+                                let text = "I spotted a \(output.label) with \(Int(output.confidence * 100))% confidence using RevEye!"
                                 ShareSheet(items: [text, img]) {
                                     let earned = BadgeService.shared.checkAfterShare()
                                     for b in earned { vm.showToast(b) }
@@ -281,8 +279,8 @@ if vm.photoSaved {
 
     // Picks the right heading text based on why we're showing suggestions
     private func headerFor(_ o: ClassificationOutput) -> String {
-        if !o.isVehicle { return "Not sure there's a vehicle — but could it be:" }
-        if o.tier == .tooLow { return "Tough one — our best guesses:" }
+        if !o.isVehicle { return "Not sure there's a vehicle - but could it be:" }
+        if o.tier == .tooLow { return "Tough one - our best guesses:" }
         return "We think it might be:"
     }
 
@@ -305,9 +303,9 @@ if vm.photoSaved {
             if !vm.photoSaved && !vm.photoSkipped {
                 VStack(spacing: RE.s8) {
                                         // Main save button - stores the detection and triggers badge checks
-Button("Save Detection") { vm.savePhotoDetection() }.buttonStyle(REPrimaryButton())
+                                        Button("Save Detection") { vm.savePhotoDetection() }.buttonStyle(REPrimaryButton())
                                         // Skip button - discard this result without saving
-Button("Don't Save") { vm.skipDetection() }.buttonStyle(REDestructiveButton())
+                                        Button("Don't Save") { vm.skipDetection() }.buttonStyle(REDestructiveButton())
                     Button { showCorrection = true } label: {
                         HStack(spacing: RE.s8) {
                             Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 12))
@@ -348,10 +346,10 @@ if vm.photoSaved {
             }
             VStack(spacing: RE.s12) {
                                 // Progress bar showing how far through the video we are
-ProgressView(value: vm.videoProgress, total: vm.videoTotal).tint(REColors.accent)
+                                ProgressView(value: vm.videoProgress, total: vm.videoTotal).tint(REColors.accent)
                 HStack {
                                         // Status text during video scan
-Text("Scanning for vehicles…").font(REFont.label).foregroundColor(REColors.textSec)
+                                        Text("Scanning for vehicles...").font(REFont.label).foregroundColor(REColors.textSec)
                     Spacer()
                     Text("\(Int(vm.videoProgress)) of \(Int(vm.videoTotal))").font(REFont.small).foregroundColor(REColors.textDim)
                 }
@@ -367,7 +365,7 @@ Text("Scanning for vehicles…").font(REFont.label).foregroundColor(REColors.tex
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: RE.s8) {
                                                 // List each vehicle found in the video with save/skip buttons
-ForEach(vm.videoDetections) { det in
+                                                ForEach(vm.videoDetections) { det in
                             if let thumb = det.thumbnail {
                                 Image(uiImage: thumb)
                                     .resizable().scaledToFill()
@@ -426,7 +424,7 @@ ForEach(vm.videoDetections) { det in
                     Text(det.label).font(REFont.heading).foregroundColor(REColors.text).lineLimit(2)
                     HStack(spacing: RE.s8) {
                         Text("\(Int(det.confidence * 100))%").font(REFont.label).foregroundColor(confColor)
-                        Text("·").foregroundColor(REColors.textDim)
+                        Text("|").foregroundColor(REColors.textDim)
                         Text("at \(vm.fmtTime(det.appearedAt))").font(REFont.caption).foregroundColor(REColors.textDim)
                     }
                 }
@@ -477,7 +475,7 @@ ForEach(vm.videoDetections) { det in
         .padding(RE.s12).background(REColors.bgCard).cornerRadius(RE.r12)
     }
 
-    // Inline correction picker — radio-select then Save (mirrors photo SuggestionPicker)
+    // Inline correction picker: radio-select then Save (mirrors photo SuggestionPicker).
     private func videoDetCorrectionView(_ det: VideoDetection, index: Int) -> some View {
         let pick = correctionPick[index]
 

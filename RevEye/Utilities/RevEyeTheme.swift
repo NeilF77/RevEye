@@ -10,37 +10,37 @@ import SwiftUI
 // All colours used across the app, defined as static constants.
 // Using hex values keeps them consistent with the Figma/design spec.
 struct REColors {
-    // Background colours - layered from darkest (bg) to lightest (bgInput)
-static let bg          = Color(hex: "0F1923")
+    // Background layers, darkest to lightest.
+    static let bg          = Color(hex: "0F1923")
     static let bgCard      = Color(hex: "172030")
     static let bgInput     = Color(hex: "1C2738")
 
-    // Primary blue used for buttons and interactive elements
-static let blue        = Color(hex: "3B82F6")
+    // Primary blue for buttons and interactive elements.
+    static let blue        = Color(hex: "3B82F6")
     static let blueLight   = Color(hex: "60A5FA")
-    // Orange accent used for highlights, streaks, and the tab bar tint
-static let accent      = Color(hex: "E8910D")
+    // Orange accent for highlights, streaks, and the tab bar tint.
+    static let accent      = Color(hex: "E8910D")
 
-    // Confidence level colours - green for high, orange for medium, red for low
-static let confGreen   = Color(hex: "34D399")
+    // Confidence tiers: green (high) / orange (medium) / red (low).
+    static let confGreen   = Color(hex: "34D399")
     static let confOrange  = Color(hex: "E8910D")
-    static let confRed     = Color(hex: "A63D3D")   // muted red for low confidence
+    static let confRed     = Color(hex: "A63D3D")
     static let confNone    = Color(hex: "64748B")
 
-    // Text hierarchy - bright white for primary, grey shades for secondary/dim
-static let text        = Color.white
+    // Text hierarchy: bright white for primary, greys for secondary/dim.
+    static let text        = Color.white
     static let textSec     = Color(hex: "CBD5E1")
     static let textDim     = Color(hex: "7B8BA3")
 
     static let success     = Color(hex: "34D399")
     static let error       = Color(hex: "EF4444")
 
-    // Destructive action colours (delete buttons, error states)
-static let destructive     = Color(hex: "7F2D2D")   // button background
-    static let destructiveText = Color(hex: "E57373")   // text-only (warmer, less pink)
+    // Destructive actions (delete buttons, error states).
+    static let destructive     = Color(hex: "7F2D2D")
+    static let destructiveText = Color(hex: "E57373")
 
-    // Returns the appropriate colour for a given confidence score
-static func displayConf(_ confidence: Double) -> Color {
+    // Picks the tier colour for a confidence score in [0, 1].
+    static func displayConf(_ confidence: Double) -> Color {
         let pct = confidence * 100
         if pct >= 70 { return confGreen }
         if pct >= 40 { return confOrange }

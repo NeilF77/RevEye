@@ -2,8 +2,9 @@
 // RevEye
 //
 // Manages user authentication using Firebase. Provides sign in, sign up,
-// and sign out functionality. On sign out, all local data is wiped so the
-// next user starts fresh. This is a singleton accessed via AuthService.shared.
+// and sign out functionality. On sign out, local data is cleared. On sign
+// in, badges and detection history are restored from Firebase so nothing
+// is lost between sessions. This is a singleton accessed via AuthService.shared.
 
 import Foundation
 import Combine
@@ -17,18 +18,19 @@ final class AuthService: ObservableObject {
     @Published var user: User?
 
     private init() {
-    // Grab the current user on app launch (may be nil if not logged in)
+        // Grab the current user on app launch (may be nil if not logged in).
         self.user = Auth.auth().currentUser
 
-    // Listen for auth state changes (login, logout, token refresh).
-    // When a new user signs in, sync their badges from Firebase.
+        // Listen for auth state changes (login, logout, token refresh).
+        // When a new user signs in, sync their badges and detections from Firebase.
         Auth.auth().addStateDidChangeListener { [weak self] _, user in
             let previousUid = self?.user?.uid
             self?.user = user
 
-            // Only refresh badges if this is a genuinely different user
+            // Only refresh data if this is a genuinely different user
             if let user, user.uid != previousUid {
                 BadgeService.shared.refreshBadges()
+                FirebaseService.shared.downloadDetections()
             }
         }
     }
@@ -47,8 +49,8 @@ final class AuthService: ObservableObject {
         }
     }
 
-    // Sign out and wipe all local data. This ensures that if a different
-    // person logs in on the same device, they don't see the previous user's data.
+    // Sign out and clear local data. When the user signs back in,
+    // their badges and detection history will be restored from Firebase.
     func signOut() {
         do {
             // Clear local database, badge cache, and saved images

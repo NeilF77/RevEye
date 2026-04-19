@@ -18,11 +18,13 @@ struct DetectionView: View {
     @State private var image: UIImage?
     @State private var showDeleteConfirm = false
     @State private var audioSample: AudioSample?
-    @State private var isPlaying = false
-    @State private var audioPlayer: AVAudioPlayer?
+    @StateObject private var playback = AudioPlaybackController()
     @State private var showShareSheet = false
     @State private var shareBadge: Badge?
     @State private var showShareBadgeToast = false
+
+    // Convenience: is the linked audio currently playing?
+    private var isPlaying: Bool { playback.currentId != nil }
 
     private let db = DatabaseManager.shared
     // Badge service for tracking share badges
@@ -40,7 +42,7 @@ struct DetectionView: View {
 
                     
                     // Vehicle image with share icon overlay (appears when saved)
-if let img = image {
+                    if let img = image {
                         Image(uiImage: img)
                             .resizable().scaledToFit()
                             .cornerRadius(RE.r12)
@@ -66,7 +68,7 @@ if let img = image {
 
                     
                     // Vehicle name and confidence badge
-VStack(spacing: RE.s12) {
+                    VStack(spacing: RE.s12) {
                         let confColor = REColors.displayConf(detection.confidence)
                         if detection.vehicleLabel != "Unknown Vehicle" {
                             Text("\(Int(detection.confidence * 100))% match")
@@ -83,7 +85,7 @@ VStack(spacing: RE.s12) {
 
                     
                     // Metadata card showing date, time, confidence, and sync status
-VStack(spacing: 0) {
+                    VStack(spacing: 0) {
                         metaRow("calendar", "Date", fmtDate(detection.timestamp))
                         Divider().background(REColors.bgInput)
                         metaRow("clock", "Time", fmtTime(detection.timestamp))
@@ -99,13 +101,13 @@ VStack(spacing: 0) {
 
                     
                     // Audio section - only shown if this detection has a linked audio sample
-if let sample = audioSample {
+                    if let sample = audioSample {
                         audioSection(sample)
                             .padding(.horizontal, RE.s16)
                     } else if detection.audioSampleId != nil {
                         
                     // Audio sample linked placeholder
-HStack(spacing: RE.s12) {
+                    HStack(spacing: RE.s12) {
                             Image(systemName: "waveform")
                                 .foregroundColor(REColors.textDim)
                             Text("Audio sample linked")
@@ -120,7 +122,7 @@ HStack(spacing: RE.s12) {
 
                     
                     // Share button
-if let img = image {
+                    if let img = image {
                         Button {
                             showShareSheet = true
                         } label: {
@@ -132,7 +134,7 @@ if let img = image {
                         .buttonStyle(REPrimaryButton(color: REColors.blue))
                         .padding(.horizontal, RE.s16)
                         .sheet(isPresented: $showShareSheet) {
-                            let shareText = "I spotted a \(detection.vehicleLabel) with \(Int(detection.confidence * 100))% confidence using RevEye! 🚗"
+                            let shareText = "I spotted a \(detection.vehicleLabel) with \(Int(detection.confidence * 100))% confidence using RevEye!"
                             ShareSheet(items: [shareText, img]) {
                                 let earned = badges.checkAfterShare()
                                 if let first = earned.first {
@@ -148,7 +150,7 @@ if let img = image {
 
                     
                     // Delete button with confirmation alert
-Button { showDeleteConfirm = true } label: {
+                    Button { showDeleteConfirm = true } label: {
                         Text("Delete Detection")
                     }
                     .buttonStyle(REDestructiveButton())
@@ -184,7 +186,7 @@ Button { showDeleteConfirm = true } label: {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
                 // Load the image and audio sample when the view appears
-.onAppear {
+                .onAppear {
             if let id = detection.id {
                 image = ImageStore.load(for: id)
             }
@@ -193,7 +195,7 @@ Button { showDeleteConfirm = true } label: {
             }
         }
         .onDisappear {
-            audioPlayer?.stop()
+            playback.stop()
         }
         .alert("Delete Detection?", isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
@@ -271,7 +273,7 @@ Button { showDeleteConfirm = true } label: {
             HStack(spacing: RE.s8) {
                 Text(sample.recordingContext.label)
                     .font(REFont.small).foregroundColor(REColors.textDim)
-                Text("·").foregroundColor(REColors.textDim)
+                Text("|").foregroundColor(REColors.textDim)
                 Text(formatWallTime(sample.timestamp))
                     .font(REFont.small).foregroundColor(REColors.textDim)
             }
@@ -295,35 +297,20 @@ Button { showDeleteConfirm = true } label: {
 
     // Playback
 
-    // Plays or stops the audio sample. Configures the audio session for
-    // playback mode so sound works even when the iPhone silent switch is on.
+    // Plays or stops the audio sample. The AudioPlaybackController handles
+    // session setup, delegate callbacks, and clearing state when the clip
+    // finishes on its own.
     private func togglePlayback(_ sample: AudioSample) {
         if isPlaying {
-            audioPlayer?.stop()
-            isPlaying = false
+            playback.stop()
             return
         }
-        let url = URL(fileURLWithPath: sample.localFilePath)
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-
-            audioPlayer?.stop()
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer?.play()
-            isPlaying = true
-
-            let duration = sample.audioDuration > 0 ? sample.audioDuration : 10
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.5) { [self] in
-                if self.isPlaying {
-                    self.isPlaying = false
-                }
-            }
-        } catch {
-            print("Playback error: \(error.localizedDescription)")
-            isPlaying = false
+        let url = AudioExtractor.resolvedURL(for: sample.localFilePath)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            print("Playback error: audio file not found at \(url.path)")
+            return
         }
+        playback.play(url: url, id: sample.id)
     }
 
     // Load Audio Sample

@@ -1,19 +1,20 @@
 // OnboardingView.swift
 // RevEye
 //
-// First-launch walkthrough with 5 screens explaining the app: Scan, Identify,
-// Listen (audio feature), Collect (badges), and Share. Supports swipe
-// navigation and a skip button.
+// First-launch walkthrough. Explains the main app features (Scan, Identify,
+// Listen, Collect, Share) on swipeable pages with a skip button.
 
 import SwiftUI
 
 struct OnboardingView: View {
-    // When set to true, the app switches from onboarding to login/main
+    // Flipped to true when the user finishes or skips. RootView watches this
+    // to switch over to the login/main screen.
     @Binding var hasCompletedOnboarding: Bool
-    // Which onboarding page is currently shown
+
     @State private var currentPage = 0
 
-    // The 5 onboarding screens with their icon, title, subtitle, and accent colour
+    // Each page has an SF Symbol icon, a title, a short blurb, and an
+    // accent colour for the icon circle + button.
     private let pages: [(icon: String, title: String, subtitle: String, color: Color)] = [
         ("viewfinder",
          "Scan",
@@ -22,7 +23,7 @@ struct OnboardingView: View {
 
         ("sparkles",
          "Identify",
-         "Get the make, model, and year — even when our model isn't sure, you can help it learn.",
+         "Get the make, model, and year. If the model isn't sure, you can help it learn.",
          REColors.accent),
 
         ("waveform",
@@ -44,14 +45,13 @@ struct OnboardingView: View {
     private var pageCount: Int { pages.count }
 
     var body: some View {
-        
-                // Coloured circle background behind the page icon
-ZStack {
+        ZStack {
             REColors.bg.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 Spacer()
 
+                // Coloured circle behind the page icon.
                 ZStack {
                     Circle()
                         .fill(pages[currentPage].color.opacity(0.12))
@@ -77,9 +77,9 @@ ZStack {
 
                 Spacer()
 
-                
-                // Page indicator dots - the active one is wider (capsule shape)
-HStack(spacing: RE.s8) {
+                // Page indicator dots. The active one stretches into a capsule
+                // so it stands out at a glance.
+                HStack(spacing: RE.s8) {
                     ForEach(0..<pageCount, id: \.self) { i in
                         Capsule()
                             .fill(i == currentPage ? pages[currentPage].color : REColors.textDim.opacity(0.4))
@@ -90,12 +90,10 @@ HStack(spacing: RE.s8) {
 
                 Spacer().frame(height: RE.s32)
 
-                
-                // Next / Get Started button
-Button {
-                    
-                // Skip button on all pages except the last one
-if currentPage < pageCount - 1 {
+                // Next / Get Started button. On the final page this finishes
+                // onboarding; otherwise it advances to the next page.
+                Button {
+                    if currentPage < pageCount - 1 {
                         withAnimation(.easeInOut(duration: 0.25)) { currentPage += 1 }
                     } else {
                         hasCompletedOnboarding = true
@@ -106,6 +104,7 @@ if currentPage < pageCount - 1 {
                 .buttonStyle(REPrimaryButton(color: pages[currentPage].color))
                 .padding(.horizontal, RE.s24)
 
+                // Skip on all pages except the last.
                 if currentPage < pageCount - 1 {
                     Button("Skip") {
                         hasCompletedOnboarding = true
@@ -118,8 +117,8 @@ if currentPage < pageCount - 1 {
                 Spacer().frame(height: RE.s48)
             }
         }
-                // Swipe left/right to navigate between pages
-.gesture(
+        // Left/right swipe as an alternative to the Next button.
+        .gesture(
             DragGesture(minimumDistance: 30)
                 .onEnded { value in
                     if value.translation.width < -30, currentPage < pageCount - 1 {

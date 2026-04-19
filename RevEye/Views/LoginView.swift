@@ -7,16 +7,12 @@
 import SwiftUI
 
 struct LoginView: View {
-    // Form fields and error state
     @State private var email = ""
     @State private var password = ""
     @State private var errorMessage: String?
     @State private var isLoading = false
     @ObservedObject private var auth = AuthService.shared
 
-    
-    // Login form with email, password, error message, and sign in button.
-    // Links to the sign up screen for new users.
     var body: some View {
         NavigationStack {
             ZStack {
@@ -51,9 +47,8 @@ struct LoginView: View {
 
                     Spacer().frame(height: RE.s32)
 
-                    
                     // Sign in button - validates fields then calls Firebase
-Button { login() } label: {
+                    Button { login() } label: {
                         if isLoading { ProgressView().tint(.white) }
                         else { Text("Sign In") }
                     }
@@ -61,9 +56,8 @@ Button { login() } label: {
                     .disabled(isLoading || email.isEmpty || password.isEmpty)
                     .padding(.horizontal, RE.s24)
 
-                    
-                    // Link to the sign up screen for new users
-NavigationLink {
+                    // Link to sign up for new users
+                    NavigationLink {
                         SignUpView()
                     } label: {
                         HStack(spacing: RE.s4) {
@@ -90,9 +84,7 @@ NavigationLink {
                 .foregroundColor(REColors.textDim)
                 .frame(width: 16)
             if secure {
-                
-                    // Password field with secure text entry
-SecureField(placeholder, text: text)
+                SecureField(placeholder, text: text)
                     .foregroundColor(REColors.text)
             } else {
                 TextField(placeholder, text: text)

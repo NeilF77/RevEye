@@ -42,7 +42,7 @@ struct PrivacyPolicyView: View {
                     policySection(
                         icon: "waveform",
                         title: "Audio Data",
-                        body: "If you contribute audio from a video, the extracted audio clip and metadata (vehicle type, recording context, background noise level) are stored in our cloud database (Google Firebase). This data is used to build a research dataset of vehicle sounds. Audio contributions are anonymous — they are linked to your account ID but your name and email are not included in the dataset."
+                        body: "If you contribute audio from a video, the extracted audio clip and metadata (vehicle type, recording context, background noise level) are stored in our cloud database (Google Firebase). This data is used to build a research dataset of vehicle sounds. Audio contributions are anonymous - they are linked to your account ID but your name and email are not included in the dataset."
                     )
 
                     policySection(

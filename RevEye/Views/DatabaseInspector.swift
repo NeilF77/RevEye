@@ -125,7 +125,9 @@ struct DatabaseInspector: View {
                         dbChip(sample.vehicleState.label)
                     }
                     Text(sample.localFilePath).font(.system(size: 10)).foregroundColor(REColors.textDim).lineLimit(1)
-                    let exists = FileManager.default.fileExists(atPath: sample.localFilePath)
+                    let exists = FileManager.default.fileExists(
+                        atPath: AudioExtractor.resolvedURL(for: sample.localFilePath).path
+                    )
                     Text(exists ? "File exists on disk" : "FILE MISSING").font(REFont.small)
                         .foregroundColor(exists ? REColors.confGreen : REColors.error)
                 }

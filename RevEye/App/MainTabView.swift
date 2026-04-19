@@ -50,7 +50,7 @@ struct MainTabView: View {
                 .badge(unseenBadgeCount)
         }
         .tint(REColors.accent)
-    // Make tab bar background visible on all screens
+        // Make tab bar background visible on all screens
         .onAppear {
             let appearance = UITabBarAppearance()
             appearance.configureWithDefaultBackground()
@@ -58,7 +58,7 @@ struct MainTabView: View {
             UITabBar.appearance().standardAppearance = appearance
             UITabBar.appearance().scrollEdgeAppearance = appearance
         }
-    // Listen for requests to switch to the Scan tab from other views
+        // Listen for requests to switch to the Scan tab from other views
         .onReceive(NotificationCenter.default.publisher(for: .switchToScanTab)) { _ in
             selectedTab = 0
         }

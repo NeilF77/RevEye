@@ -1,14 +1,20 @@
 // DatabaseManager.swift
 // RevEye
 //
-// The local SQLite database layer. All detections, badges, and audio samples
-// are stored here first, then synced to Firebase when online. This class is
-// a singleton to prevent concurrent database access issues. All database
-// operations run on a serial DispatchQueue to avoid race conditions between
-// the main thread and background video processing.
+// Local SQLite layer for detections, badges and audio samples.
+// Writes happen here first and get pushed to Firestore later when online.
+// Everything runs on a serial queue so the main thread and the video
+// processing thread don't trample each other.
 
 import Foundation
 import SQLite3
+
+// SQLite has two "special" destructors: STATIC (don't copy the string, it
+// stays valid) and TRANSIENT (copy the string, I'm about to free it).
+// The C macros for these aren't bridged into Swift, so the usual trick is
+// to bitcast -1 to a destructor function pointer. Pulling it out as a
+// named constant so the call sites read clearly.
+private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 class DatabaseManager {
     static let shared = DatabaseManager()
@@ -35,13 +41,12 @@ class DatabaseManager {
             return
         }
         if sqlite3_open(fileURL.path, &db) != SQLITE_OK {
-            print("DB error: could not open — \(errorMessage)")
-        } else {
+            print("DB error: could not open - \(errorMessage)")
         }
     }
 
     // Creates all the tables the app needs if they don't already exist.
-    // Safe to call on every launch — "IF NOT EXISTS" means it won't
+    // Safe to call on every launch - "IF NOT EXISTS" means it won't
     // overwrite existing data.
     private func createTables() {
         let createDetections = """
@@ -55,7 +60,7 @@ class DatabaseManager {
         );
         """
         if sqlite3_exec(db, createDetections, nil, nil, nil) != SQLITE_OK {
-            print("DB error: could not create detections table — \(errorMessage)")
+            print("DB error: could not create detections table - \(errorMessage)")
         }
 
         migrateBadgesTableIfNeeded()
@@ -79,7 +84,7 @@ class DatabaseManager {
         );
         """
         if sqlite3_exec(db, createAudio, nil, nil, nil) != SQLITE_OK {
-            print("DB error: could not create audioSamples table — \(errorMessage)")
+            print("DB error: could not create audioSamples table - \(errorMessage)")
         }
 
         migrateVehicleModelColumnIfNeeded()
@@ -93,8 +98,7 @@ class DatabaseManager {
             let sql = "INSERT OR IGNORE INTO badges (id, earned, earnedAt) VALUES (?, 0, NULL);"
             var stmt: OpaquePointer?
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-                sqlite3_bind_text(stmt, 1, badge.id, -1, transient)
+                sqlite3_bind_text(stmt, 1, badge.id, -1, SQLITE_TRANSIENT)
                 sqlite3_step(stmt)
             }
             sqlite3_finalize(stmt)
@@ -133,7 +137,7 @@ class DatabaseManager {
         );
         """
         if sqlite3_exec(db, createBadges, nil, nil, nil) != SQLITE_OK {
-            print("DB error: could not create badges table — \(errorMessage)")
+            print("DB error: could not create badges table - \(errorMessage)")
         }
     }
 
@@ -218,10 +222,9 @@ extension DatabaseManager {
                 print("DB error (insert prepare): \(errorMessage)"); return
             }
             defer { sqlite3_finalize(stmt) }
-            let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-            sqlite3_bind_text  (stmt, 1, detection.vehicleLabel, -1, transient)
+            sqlite3_bind_text  (stmt, 1, detection.vehicleLabel, -1, SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 2, detection.confidence)
-            sqlite3_bind_text  (stmt, 3, detection.timestamp,    -1, transient)
+            sqlite3_bind_text  (stmt, 3, detection.timestamp,    -1, SQLITE_TRANSIENT)
             sqlite3_bind_int   (stmt, 4, Int32(detection.synced))
             if let audioId = detection.audioSampleId {
                 sqlite3_bind_int64(stmt, 5, audioId)
@@ -339,14 +342,10 @@ extension DatabaseManager {
 
         var streak = 0
         var day = cal.startOfDay(for: Date())
-        while true {
-            let key = fmt.string(from: day)
-            if dates.contains(key) {
-                streak += 1
-                day = cal.date(byAdding: .day, value: -1, to: day)!
-            } else {
-                break
-            }
+        while dates.contains(fmt.string(from: day)) {
+            streak += 1
+            guard let prev = cal.date(byAdding: .day, value: -1, to: day) else { break }
+            day = prev
         }
         return streak
     }
@@ -392,8 +391,7 @@ extension DatabaseManager {
             let checkSQL = "SELECT earned FROM badges WHERE id = ?;"
             var checkStmt: OpaquePointer?
             if sqlite3_prepare_v2(db, checkSQL, -1, &checkStmt, nil) == SQLITE_OK {
-                let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-                sqlite3_bind_text(checkStmt, 1, id, -1, transient)
+                sqlite3_bind_text(checkStmt, 1, id, -1, SQLITE_TRANSIENT)
                 if sqlite3_step(checkStmt) == SQLITE_ROW {
                     wasNew = sqlite3_column_int(checkStmt, 0) == 0
                 }
@@ -408,9 +406,8 @@ extension DatabaseManager {
                 wasNew = false; return
             }
             defer { sqlite3_finalize(stmt) }
-            let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-            sqlite3_bind_text(stmt, 1, earnedAt, -1, transient)
-            sqlite3_bind_text(stmt, 2, id,       -1, transient)
+            sqlite3_bind_text(stmt, 1, earnedAt, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, id,       -1, SQLITE_TRANSIENT)
             if sqlite3_step(stmt) != SQLITE_DONE { wasNew = false }
         }
         return wasNew
@@ -428,9 +425,8 @@ extension DatabaseManager {
             for item in earned {
                 var stmt: OpaquePointer?
                 guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { continue }
-                let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-                sqlite3_bind_text(stmt, 1, item.id,       -1, transient)
-                sqlite3_bind_text(stmt, 2, item.earnedAt, -1, transient)
+                sqlite3_bind_text(stmt, 1, item.id,       -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 2, item.earnedAt, -1, SQLITE_TRANSIENT)
                 sqlite3_step(stmt)
                 sqlite3_finalize(stmt)
             }
@@ -487,22 +483,21 @@ extension DatabaseManager {
                 print("DB error (insertAudio prepare): \(errorMessage)"); return
             }
             defer { sqlite3_finalize(stmt) }
-            let t = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-            sqlite3_bind_text  (stmt, 1,  sample.vehicleLabel, -1, t)
+            sqlite3_bind_text  (stmt, 1,  sample.vehicleLabel, -1, SQLITE_TRANSIENT)
             sqlite3_bind_double(stmt, 2,  sample.confidence)
             sqlite3_bind_double(stmt, 3,  sample.audioDuration)
-            sqlite3_bind_text  (stmt, 4,  sample.engineAudible.rawValue, -1, t)
-            sqlite3_bind_text  (stmt, 5,  sample.recordingContext.rawValue, -1, t)
-            sqlite3_bind_text  (stmt, 6,  sample.vehicleState.rawValue, -1, t)
-            sqlite3_bind_text  (stmt, 7,  sample.backgroundNoise.rawValue, -1, t)
-            sqlite3_bind_text  (stmt, 8,  sample.userNotes, -1, t)
-            sqlite3_bind_text  (stmt, 9,  sample.localFilePath, -1, t)
+            sqlite3_bind_text  (stmt, 4,  sample.engineAudible.rawValue, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text  (stmt, 5,  sample.recordingContext.rawValue, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text  (stmt, 6,  sample.vehicleState.rawValue, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text  (stmt, 7,  sample.backgroundNoise.rawValue, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text  (stmt, 8,  sample.userNotes, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text  (stmt, 9,  sample.localFilePath, -1, SQLITE_TRANSIENT)
             if let fbPath = sample.firebaseStoragePath {
-                sqlite3_bind_text(stmt, 10, fbPath, -1, t)
+                sqlite3_bind_text(stmt, 10, fbPath, -1, SQLITE_TRANSIENT)
             } else {
                 sqlite3_bind_null(stmt, 10)
             }
-            sqlite3_bind_text(stmt, 11, sample.timestamp, -1, t)
+            sqlite3_bind_text(stmt, 11, sample.timestamp, -1, SQLITE_TRANSIENT)
             sqlite3_bind_int (stmt, 12, Int32(sample.synced))
             guard sqlite3_step(stmt) == SQLITE_DONE else {
                 print("DB error (insertAudio step): \(errorMessage)"); return
@@ -521,6 +516,7 @@ extension DatabaseManager {
                 print("DB error (fetchAudio): \(errorMessage)"); return
             }
             defer { sqlite3_finalize(stmt) }
+            guard let stmt else { return }
             while sqlite3_step(stmt) == SQLITE_ROW {
                 results.append(audioSampleFromRow(stmt))
             }
@@ -548,32 +544,30 @@ extension DatabaseManager {
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
             defer { sqlite3_finalize(stmt) }
-            let t = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-            sqlite3_bind_text (stmt, 1, storagePath, -1, t)
+            sqlite3_bind_text (stmt, 1, storagePath, -1, SQLITE_TRANSIENT)
             sqlite3_bind_int64(stmt, 2, id)
             sqlite3_step(stmt)
         }
     }
 
-    // Maps a SQLite result row into an AudioSample struct.
-    // Reads each column by index and converts raw values to the correct types.
-    private func audioSampleFromRow(_ stmt: OpaquePointer?) -> AudioSample {
+    // Maps a SQLite row into an AudioSample. Caller must pass a valid stmt.
+    private func audioSampleFromRow(_ stmt: OpaquePointer) -> AudioSample {
         let fbPath: String? = sqlite3_column_type(stmt, 10) != SQLITE_NULL
-            ? String(cString: sqlite3_column_text(stmt!, 10)) : nil
+            ? String(cString: sqlite3_column_text(stmt, 10)) : nil
         return AudioSample(
-            id:                  sqlite3_column_int64(stmt!, 0),
-            vehicleLabel:        String(cString: sqlite3_column_text(stmt!, 1)),
-            confidence:          sqlite3_column_double(stmt!, 2),
-            audioDuration:       sqlite3_column_double(stmt!, 3),
-            engineAudible:       EngineAudible(rawValue: String(cString: sqlite3_column_text(stmt!, 4))) ?? .unsure,
-            recordingContext:    RecordingContext(rawValue: String(cString: sqlite3_column_text(stmt!, 5))) ?? .other,
-            vehicleState:        VehicleState(rawValue: String(cString: sqlite3_column_text(stmt!, 6))) ?? .unknown,
-            backgroundNoise:     NoiseLevel(rawValue: String(cString: sqlite3_column_text(stmt!, 7))) ?? .moderate,
-            userNotes:           String(cString: sqlite3_column_text(stmt!, 8)),
-            localFilePath:       String(cString: sqlite3_column_text(stmt!, 9)),
+            id:                  sqlite3_column_int64(stmt, 0),
+            vehicleLabel:        String(cString: sqlite3_column_text(stmt, 1)),
+            confidence:          sqlite3_column_double(stmt, 2),
+            audioDuration:       sqlite3_column_double(stmt, 3),
+            engineAudible:       EngineAudible(rawValue: String(cString: sqlite3_column_text(stmt, 4))) ?? .unsure,
+            recordingContext:    RecordingContext(rawValue: String(cString: sqlite3_column_text(stmt, 5))) ?? .other,
+            vehicleState:        VehicleState(rawValue: String(cString: sqlite3_column_text(stmt, 6))) ?? .unknown,
+            backgroundNoise:     NoiseLevel(rawValue: String(cString: sqlite3_column_text(stmt, 7))) ?? .moderate,
+            userNotes:           String(cString: sqlite3_column_text(stmt, 8)),
+            localFilePath:       String(cString: sqlite3_column_text(stmt, 9)),
             firebaseStoragePath: fbPath,
-            timestamp:           String(cString: sqlite3_column_text(stmt!, 11)),
-            synced:              Int(sqlite3_column_int(stmt!, 12))
+            timestamp:           String(cString: sqlite3_column_text(stmt, 11)),
+            synced:              Int(sqlite3_column_int(stmt, 12))
         )
     }
 

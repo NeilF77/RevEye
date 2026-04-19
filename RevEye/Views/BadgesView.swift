@@ -46,7 +46,7 @@ struct BadgesView: View {
                         sectionHeader("Earned", count: earned.count, color: REColors.accent)
                         
                         // Earned badges in a 3-column grid
-LazyVGrid(columns: columns, spacing: RE.s12) {
+                        LazyVGrid(columns: columns, spacing: RE.s12) {
                             ForEach(earned) { badge in
                                 badgeCell(badge, unlocked: true)
                                     .onTapGesture { selectedBadge = badge }
@@ -60,7 +60,7 @@ LazyVGrid(columns: columns, spacing: RE.s12) {
 LazyVGrid(columns: columns, spacing: RE.s12) {
                             
                             // Each locked badge shows how close the user is to earning it
-ForEach(locked) { badge in
+                            ForEach(locked) { badge in
                                 badgeCell(badge, unlocked: false)
                                     .onTapGesture { selectedBadge = badge }
                             }
@@ -167,7 +167,7 @@ ForEach(locked) { badge in
                 VStack(spacing: 2) {
                     
             // Overall progress bar showing percentage of badges earned
-GeometryReader { g in
+            GeometryReader { g in
                         ZStack(alignment: .leading) {
                             Capsule().fill(REColors.bgInput).frame(height: 3)
                             Capsule().fill(REColors.accent)
@@ -196,7 +196,7 @@ GeometryReader { g in
     // Progress Calculation
 
     // Simple struct to hold current/target values for progress calculation
-private struct BadgeProgress {
+    private struct BadgeProgress {
         let current: Int
         let target: Int
     }
@@ -206,7 +206,7 @@ private struct BadgeProgress {
     private func badgeProgress(_ badge: Badge) -> BadgeProgress? {
         let count = detections.count
                 // Map each badge ID to its current/target progress based on user data
-switch badge.id {
+                switch badge.id {
         case "detections_5":    return BadgeProgress(current: min(count, 5), target: 5)
         case "detections_25":   return BadgeProgress(current: min(count, 25), target: 25)
         case "detections_50":   return BadgeProgress(current: min(count, 50), target: 50)
@@ -290,7 +290,7 @@ switch badge.id {
                         
                         // Locked badges as a list with progress bars showing how close
                         // the user is to earning each one
-VStack(spacing: RE.s8) {
+                        VStack(spacing: RE.s8) {
                             GeometryReader { g in
                                 ZStack(alignment: .leading) {
                                     Capsule().fill(REColors.bgInput).frame(height: 6)

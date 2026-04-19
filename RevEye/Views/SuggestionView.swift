@@ -47,7 +47,7 @@ struct SuggestionView: View {
             }
 
                         // Show each of the top 3 ML predictions as a selectable option
-ForEach(Array(output.top3.prefix(3).enumerated()), id: \.offset) { i, pred in
+                        ForEach(Array(output.top3.prefix(3).enumerated()), id: \.offset) { i, pred in
                 optionRow(i, pred.label, pred.confidence, i == 0)
             }
 
@@ -81,7 +81,7 @@ Button {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(REColors.success)
                         .font(.system(size: 14))
-                    Text(picked == -1 ? "Saved as unknown" : "Saved — thanks for helping RevEye learn!")
+                    Text(picked == -1 ? "Saved as unknown" : "Saved - thanks for helping RevEye learn!")
                         .font(REFont.caption)
                         .foregroundColor(REColors.success)
                 }

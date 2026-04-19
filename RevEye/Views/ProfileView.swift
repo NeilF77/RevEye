@@ -33,7 +33,7 @@ struct ProfileView: View {
             .filter { $0.vehicleLabel != "Unknown Vehicle" }
             .compactMap { $0.vehicleLabel.components(separatedBy: " ").first }
         let counted = Dictionary(grouping: makes, by: { $0 }).mapValues { $0.count }
-        return counted.max(by: { $0.value < $1.value })?.key ?? "—"
+        return counted.max(by: { $0.value < $1.value })?.key ?? "-"
     }
 
     // Counts how many different car brands the user has scanned
@@ -66,7 +66,7 @@ struct ProfileView: View {
                 ScrollView(showsIndicators: false) {
                     
                     // Profile layout: header, streak, badges, stats, highlights, links
-VStack(spacing: RE.s24) {
+                    VStack(spacing: RE.s24) {
                         userHeader
                         streakCard
                         badgesCard
@@ -90,7 +90,7 @@ VStack(spacing: RE.s24) {
                 }
             }
                         // Load all data when the profile tab appears
-.onAppear {
+                        .onAppear {
                 detections = db.fetchAllDetections()
                 audioCount = db.audioSampleCount()
                 badgeService.refreshBadges()
@@ -110,7 +110,7 @@ VStack(spacing: RE.s24) {
             }
             VStack(alignment: .leading, spacing: RE.s4) {
                 Text(userName).font(REFont.heading).foregroundColor(REColors.text)
-                Text("\(detections.count) scans · \(earned.count) badges")
+                Text("\(detections.count) scans | \(earned.count) badges")
                     .font(REFont.caption).foregroundColor(REColors.textDim)
             }
             Spacer()
@@ -260,7 +260,7 @@ VStack(spacing: RE.s24) {
         }
     }
 
-    // Reusable row for the highlights section — styled flat (no card background)
+    // Reusable row for the highlights section (flat style, no card background).
     // so users don't mistake it for a tappable element.
     private func highlightRow(icon: String, color: Color, title: String, value: String) -> some View {
         HStack(spacing: RE.s12) {

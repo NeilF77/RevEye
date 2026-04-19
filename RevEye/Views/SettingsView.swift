@@ -24,7 +24,7 @@ struct SettingsView: View {
 
     // Read the current user's info from Firebase Auth
     private var userEmail: String { Auth.auth().currentUser?.email ?? "Not signed in" }
-    private var userName: String { Auth.auth().currentUser?.displayName ?? "—" }
+    private var userName: String { Auth.auth().currentUser?.displayName ?? "-" }
 
     
     // Settings layout - scrollable list of sections: Account, Audio Data,
@@ -38,7 +38,7 @@ struct SettingsView: View {
 
                     
                     // Account section - tappable name field with pencil icon
-sectionHeader("Account")
+                    sectionHeader("Account")
                     VStack(spacing: 0) {
                         Button { showChangeNameAlert = true } label: {
                             HStack(spacing: RE.s12) {
@@ -64,7 +64,7 @@ sectionHeader("Account")
 
                     
                     // Audio data section - shows contribution count
-sectionHeader("Audio Data")
+                    sectionHeader("Audio Data")
                     VStack(spacing: RE.s12) {
                         HStack(spacing: RE.s12) {
                             Image(systemName: "waveform")
@@ -79,7 +79,7 @@ sectionHeader("Audio Data")
 
                     
                     // Cloud sync section - shows pending count with manual sync button
-sectionHeader("Cloud Sync")
+                    sectionHeader("Cloud Sync")
                     VStack(spacing: RE.s12) {
                         HStack(spacing: RE.s12) {
                             Image(systemName: unsyncedCount == 0 ? "checkmark.icloud" : "icloud.and.arrow.up")
@@ -103,7 +103,7 @@ sectionHeader("Cloud Sync")
                                 HStack(spacing: RE.s8) {
                                     if isSyncing { ProgressView().tint(.white) }
                                     else { Image(systemName: "arrow.triangle.2.circlepath") }
-                                    Text(isSyncing ? "Syncing…" : "Sync Now")
+                                    Text(isSyncing ? "Syncing..." : "Sync Now")
                                 }
                             }
                             .buttonStyle(REPrimaryButton())
@@ -114,7 +114,7 @@ sectionHeader("Cloud Sync")
 
                     
                     // Data summary showing total counts
-sectionHeader("Data")
+                    sectionHeader("Data")
                     VStack(spacing: 0) {
                         dataRow("car.fill", "\(db.fetchAllDetections().count) detections")
                         Divider().background(REColors.bgInput)
@@ -126,7 +126,7 @@ sectionHeader("Data")
 
                     
                     // App version and ML model info
-sectionHeader("About")
+                    sectionHeader("About")
                     VStack(spacing: 0) {
                         infoRow("app", "App", "RevEye")
                         Divider().background(REColors.bgInput)
@@ -167,13 +167,13 @@ sectionHeader("About")
                     .background(REColors.bgCard).cornerRadius(RE.r12)
 
                     // Sign out button
-Button("Sign Out") { AuthService.shared.signOut() }
+                    Button("Sign Out") { AuthService.shared.signOut() }
                         .buttonStyle(REPrimaryButton(color: REColors.accent))
                         .padding(.top, RE.s8)
 
                     
                     // Delete account button - destructive red, requires confirmation
-Button("Delete Account") { showDeleteAccountConfirm = true }
+                    Button("Delete Account") { showDeleteAccountConfirm = true }
                         .buttonStyle(REDestructiveButton())
 
                     if let err = deleteAccountError {
@@ -193,7 +193,7 @@ Button("Delete Account") { showDeleteAccountConfirm = true }
         .toolbarColorScheme(.dark, for: .navigationBar)
         .onAppear { refreshData() }
                 // Alert with text field for changing the user's display name
-.alert("Change Display Name", isPresented: $showChangeNameAlert) {
+                .alert("Change Display Name", isPresented: $showChangeNameAlert) {
             TextField("New name", text: $newDisplayName)
             Button("Save") { changeName() }
             Button("Cancel", role: .cancel) { newDisplayName = "" }
@@ -201,7 +201,7 @@ Button("Delete Account") { showDeleteAccountConfirm = true }
             Text("Enter your new display name.")
         }
                 // Confirmation dialog before permanently deleting the account
-.alert("Delete Account?", isPresented: $showDeleteAccountConfirm) {
+                .alert("Delete Account?", isPresented: $showDeleteAccountConfirm) {
             Button("Delete Permanently", role: .destructive) { deleteAccount() }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -242,21 +242,30 @@ Button("Delete Account") { showDeleteAccountConfirm = true }
 
     // Delete Account
 
-    // Permanently deletes the user's Firebase account and wipes all local data.
-    // If re-authentication is required (Firebase sometimes requires this for
-    // sensitive operations), falls back to signing out.
+    // Permanently deletes the user's account. Order matters:
+    //   1. Clear their Firestore data while we still have a valid auth token.
+    //   2. Delete the Firebase Auth user itself.
+    //   3. Wipe local SQLite and saved images.
+    // If step 2 fails (Firebase sometimes requires a recent sign-in for
+    // sensitive operations) the error is surfaced so the user can sign
+    // out, sign back in, and try again.
     private func deleteAccount() {
         guard let user = Auth.auth().currentUser else { return }
 
-        db.resetAllUserData()
-        BadgeService.shared.clearLocal()
-        ImageStore.deleteAll()
-
-        user.delete { error in
-            if let error {
-                deleteAccountError = "Failed: \(error.localizedDescription). You may need to sign out and sign back in first."
-                print("Delete account error: \(error.localizedDescription)")
-            } else {
+        FirebaseService.shared.deleteAllCloudData { cloudError in
+            if let cloudError {
+                deleteAccountError = "Failed to clear cloud data: \(cloudError.localizedDescription)"
+                return
+            }
+            user.delete { error in
+                if let error {
+                    deleteAccountError = "Failed: \(error.localizedDescription). You may need to sign out and sign back in first."
+                    print("Delete account error: \(error.localizedDescription)")
+                    return
+                }
+                db.resetAllUserData()
+                BadgeService.shared.clearLocal()
+                ImageStore.deleteAll()
                 AuthService.shared.user = nil
             }
         }

@@ -66,7 +66,7 @@ struct SignUpView: View {
 
                     
                     // Create account button
-Button { createAccount() } label: {
+                    Button { createAccount() } label: {
                         if isLoading { ProgressView().tint(.white) }
                         else { Text("Create Account") }
                     }

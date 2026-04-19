@@ -16,7 +16,7 @@ struct AudioExtractor {
     static func extract(from videoURL: URL, completion: @escaping (URL?) -> Void) {
         let asset = AVAsset(url: videoURL)
 
-    // Check that the video actually has an audio track before trying to export
+        // Check that the video actually has an audio track before trying to export
         Task {
             let audioTracks = try? await asset.loadTracks(withMediaType: .audio)
             guard let tracks = audioTracks, !tracks.isEmpty else {
@@ -46,10 +46,37 @@ struct AudioExtractor {
         }
     }
 
-    // Returns how long an audio file is in seconds. Used to display duration in the UI.
+    // Returns how long an audio file is in seconds. Used to display duration
+    // in the UI. Apple deprecated the sync `duration` property in iOS 16 in
+    // favour of an async `load(.duration)` call, but the sync version still
+    // works correctly for local files which is all we ever pass here, and
+    // keeping it sync avoids threading the audio save path through async.
     static func duration(of audioURL: URL) -> Double {
         let asset = AVURLAsset(url: audioURL)
         return CMTimeGetSeconds(asset.duration)
+    }
+
+    // Audio file locations
+    //
+    // Saved audio lives in Documents/RevEyeAudio. We only store the filename
+    // in the database, not the full path, because iOS rewrites the sandbox
+    // container UUID whenever the app is reinstalled or the device migrates.
+    // Resolving the filename against today's Documents directory avoids the
+    // "file missing" bug that happens when an old absolute path is used.
+
+    static var audioDirectory: URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dir = docs.appendingPathComponent("RevEyeAudio", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    // Resolves whatever is stored in AudioSample.localFilePath (could be a
+    // plain filename from newer rows, or a full absolute path from older
+    // rows saved before the migration) to the URL of the file today.
+    static func resolvedURL(for storedPath: String) -> URL {
+        let filename = (storedPath as NSString).lastPathComponent
+        return audioDirectory.appendingPathComponent(filename)
     }
 
     // Does the actual export work. Creates an AVAssetExportSession configured
@@ -62,17 +89,17 @@ struct AudioExtractor {
             return
         }
 
-    // Generate a unique temp file path for the output
+        // Generate a unique temp file path for the output
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("reveye_audio_\(UUID().uuidString).m4a")
 
-    // Remove any leftover file at this path
+        // Remove any leftover file at this path
         try? FileManager.default.removeItem(at: outputURL)
 
         exportSession.outputFileType = .m4a
         exportSession.outputURL = outputURL
 
-    // Run the export and handle the result
+        // Run the export and handle the result
         exportSession.exportAsynchronously {
             DispatchQueue.main.async {
                 switch exportSession.status {
@@ -81,7 +108,7 @@ struct AudioExtractor {
                     let attrs = try? FileManager.default.attributesOfItem(atPath: outputURL.path)
                     let size = attrs?[.size] as? Int ?? 0
                     if size > 0 {
-                        print("AudioExtractor: Success — \(outputURL.lastPathComponent) (\(size) bytes)")
+                        print("AudioExtractor: Success - \(outputURL.lastPathComponent) (\(size) bytes)")
                         completion(outputURL)
                     } else {
                         print("AudioExtractor: Output file is empty")
@@ -90,7 +117,7 @@ struct AudioExtractor {
                     }
 
                 case .failed:
-                    print("AudioExtractor: Failed — \(exportSession.error?.localizedDescription ?? "Unknown error")")
+                    print("AudioExtractor: Failed - \(exportSession.error?.localizedDescription ?? "Unknown error")")
                     try? FileManager.default.removeItem(at: outputURL)
                     completion(nil)
 

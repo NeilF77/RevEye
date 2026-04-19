@@ -19,9 +19,9 @@ import Combine
 // With this many classes, even correct predictions can have modest softmax
 // probabilities, so the thresholds need to be realistic.
 //
-//   - .high:    >= 60% — confident enough to show a simple save/skip card
-//   - .low:     15–59% — show suggestion picker with top 3 options
-//   - .tooLow:  < 15%  — model is essentially guessing
+//   - .high:    >= 60%  - confident enough to show a simple save/skip card
+//   - .low:     15-59%  - show suggestion picker with top 3 options
+//   - .tooLow:  < 15%   - model is essentially guessing
 enum ConfidenceTier {
     case high, low, tooLow
 
@@ -53,6 +53,9 @@ class CarClassifier: ObservableObject {
     private var visionModel: VNCoreMLModel
 
     init() {
+        // The .mlpackage is bundled in the app, so if this fails something is
+        // badly wrong (missing resource, corrupted build). Crash loudly rather
+        // than silently leave the scan feature broken.
         do {
             let coreMLModel = try RevEyeCarsVideo(configuration: MLModelConfiguration())
             visionModel = try VNCoreMLModel(for: coreMLModel.model)
@@ -87,8 +90,10 @@ class CarClassifier: ObservableObject {
         }
     }
 
-    // Checks whether the image likely contains a vehicle using VNClassifyImageRequest.
-    // Intentionally lenient — only rejects obvious non-vehicles (flowers, faces, food).
+    // Quick "does this look like a vehicle?" pre-check using Apple's generic
+    // image classifier. Intentionally lenient: if Vision errors out or returns
+    // nothing usable, we assume yes and let the car model have a go anyway.
+    // Only flat-out rejects obvious non-vehicles (flowers, faces, food).
     private func checkForVehicle(ciImage: CIImage, completion: @escaping (Bool) -> Void) {
         let request = VNClassifyImageRequest { request, error in
             if error != nil {
@@ -101,8 +106,8 @@ class CarClassifier: ObservableObject {
                 return
             }
 
-            // Only check the top 10 most confident predictions
-            // and require the match to have at least 5% confidence
+            // Only look at the top 10 most confident predictions, and
+            // require a match of at least 5% confidence.
             let vehicleKeywords = [
                 "car", "truck", "bus", "van", "suv", "vehicle", "automobile",
                 "sports car", "minivan", "jeep", "cab", "ambulance", "taxi",
