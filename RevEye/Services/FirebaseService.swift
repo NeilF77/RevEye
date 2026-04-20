@@ -7,6 +7,7 @@
 // unsynced in the local DB. Singleton, accessed via FirebaseService.shared.
 
 import Foundation
+import UIKit
 import FirebaseAuth
 import FirebaseFirestore
 import Network
@@ -38,13 +39,18 @@ final class FirebaseService {
             completion?(false); return
         }
 
-        db.collection("detections").addDocument(data: [
+        var payload: [String: Any] = [
             "userId":       uid,
             "vehicleLabel": detection.vehicleLabel,
             "confidence":   detection.confidence,
             "timestamp":    detection.timestamp,
             "sourceType":   source.rawValue
-        ]) { error in
+        ]
+        // imageKey lets the restored detection find its image file on disk
+        // after sign-out/sign-in (the file is kept locally, keyed by this UUID).
+        if let key = detection.imageKey { payload["imageKey"] = key }
+
+        db.collection("detections").addDocument(data: payload) { error in
             DispatchQueue.main.async {
                 if let error {
                     print("Firebase upload error: \(error.localizedDescription)")
@@ -97,6 +103,9 @@ final class FirebaseService {
                     let confidence = data["confidence"] as? Double ?? 0
                     let timestamp = data["timestamp"] as? String
                         ?? ISO8601DateFormatter().string(from: Date())
+                    // Restore the original imageKey so the local image file
+                    // (kept across sign-out) is matched back up with this row.
+                    let imageKey = data["imageKey"] as? String
 
                     // synced = 1 because these came straight from Firebase;
                     // no point sending them straight back up.
@@ -106,7 +115,8 @@ final class FirebaseService {
                         confidence: confidence,
                         timestamp: timestamp,
                         synced: 1,
-                        audioSampleId: nil
+                        audioSampleId: nil,
+                        imageKey: imageKey
                     )
 
                     if localManager.insertDetection(detection) != nil {
@@ -115,8 +125,103 @@ final class FirebaseService {
                 }
 
                 print("Restored \(restored) detections from Firebase")
+
+                // Pull any images we don't already have locally. This covers
+                // fresh installs, new devices, and sign-outs where the Documents
+                // folder was wiped.
+                self.downloadUserImages { completion?() }
+            }
+    }
+
+    // Image Upload (base64 in Firestore)
+
+    // Compresses a detection image for storage in Firestore. Resizes the
+    // longest edge to 1024px and JPEG-encodes at quality 0.5 so the base64
+    // form stays well under Firestore's 1MB per-document limit.
+    private func compressForCloud(_ image: UIImage) -> Data? {
+        let maxDimension: CGFloat = 1024
+        let size = image.size
+        let longest = max(size.width, size.height)
+        let scale = longest > maxDimension ? maxDimension / longest : 1
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+        let resized = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+        return resized.jpegData(compressionQuality: 0.5)
+    }
+
+    // Uploads a detection image to Firestore as base64 (keyed by imageKey)
+    // so it can be restored on a fresh install or a different device. Runs
+    // compression off the main thread. Silently no-ops if the doc would be
+    // over Firestore's 1MB limit.
+    func uploadDetectionImage(imageKey: String, image: UIImage) {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self, let data = self.compressForCloud(image) else { return }
+            let base64 = data.base64EncodedString()
+            // Back off if we'd exceed the 1MB doc limit (leaving headroom for metadata).
+            guard base64.count < 950_000 else {
+                print("Image upload skipped: compressed size \(base64.count) exceeds Firestore doc limit")
+                return
+            }
+
+            self.db.collection("detectionImages").document(imageKey).setData([
+                "userId":      uid,
+                "imageBase64": base64,
+                "imageFormat": "jpg",
+                "timestamp":   ISO8601DateFormatter().string(from: Date())
+            ]) { error in
+                if let error {
+                    print("Firebase image upload error: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    // Fetches every image belonging to the signed-in user and writes any
+    // that are missing from disk into ImageStore. Called after detections
+    // are restored so images reappear alongside their rows.
+    func downloadUserImages(completion: (() -> Void)? = nil) {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            completion?(); return
+        }
+
+        db.collection("detectionImages")
+            .whereField("userId", isEqualTo: uid)
+            .getDocuments { snapshot, error in
+                if let error {
+                    print("Firebase image download error: \(error.localizedDescription)")
+                    completion?()
+                    return
+                }
+
+                var restored = 0
+                for doc in snapshot?.documents ?? [] {
+                    let key = doc.documentID
+                    if ImageStore.exists(forKey: key) { continue }
+                    guard let base64 = doc.data()["imageBase64"] as? String,
+                          let data = Data(base64Encoded: base64),
+                          let image = UIImage(data: data) else { continue }
+                    if ImageStore.save(image, forKey: key) { restored += 1 }
+                }
+                if restored > 0 { print("Restored \(restored) images from Firebase") }
                 completion?()
             }
+    }
+
+    // Deletes a single image document from Firestore. Called when the user
+    // removes a detection so their cloud copy doesn't linger.
+    func deleteDetectionImage(imageKey: String) {
+        db.collection("detectionImages").document(imageKey).delete { error in
+            if let error {
+                print("Firebase image delete error: \(error.localizedDescription)")
+            }
+        }
     }
 
     // Audio Upload (base64 in Firestore)
@@ -188,7 +293,7 @@ final class FirebaseService {
         var firstError: Error?
 
         // Top-level collections filtered by userId.
-        for collection in ["detections", "audioSamples"] {
+        for collection in ["detections", "audioSamples", "detectionImages"] {
             group.enter()
             db.collection(collection)
                 .whereField("userId", isEqualTo: uid)

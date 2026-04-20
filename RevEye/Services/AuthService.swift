@@ -51,12 +51,16 @@ final class AuthService: ObservableObject {
 
     // Sign out and clear local data. When the user signs back in,
     // their badges and detection history will be restored from Firebase.
+    // Images are kept on disk (scoped per-UID in ImageStore) so they
+    // reappear when the same account signs back in - a different account
+    // signing in simply won't see them because the folder is UID-scoped.
     func signOut() {
         do {
-            // Clear local database, badge cache, and saved images
+            // Clear local database and badge cache. Image files stay on
+            // disk, keyed by the user's uid, and are matched back up by
+            // imageKey when detections are redownloaded on next sign-in.
             DatabaseManager.shared.resetAllUserData()
             BadgeService.shared.clearLocal()
-            ImageStore.deleteAll()
 
             try Auth.auth().signOut()
             self.user = nil

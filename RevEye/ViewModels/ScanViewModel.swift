@@ -118,8 +118,11 @@ final class ScanViewModel: ObservableObject {
     func saveDetectionWithLabel(_ label: String, confidence: Double) {
         let c = max(0, min(1, confidence))
         if let saved = insertDetection(label: label, confidence: c) {
-            if let image = capturedImage, let id = saved.id {
-                ImageStore.save(image, for: id)
+            if let image = capturedImage, let key = saved.imageKey {
+                ImageStore.save(image, forKey: key)
+                // Sync the image to Firestore so it survives app reinstall
+                // and shows up on other devices after sign-in.
+                FirebaseService.shared.uploadDetectionImage(imageKey: key, image: image)
             }
             FirebaseService.shared.uploadDetection(saved)
             savedDetections = db.fetchAllDetections()
@@ -164,8 +167,9 @@ final class ScanViewModel: ObservableObject {
         let det = videoDetections[index]
         let c = max(0, min(1, det.confidence))
         if let saved = insertDetection(label: det.label, confidence: c) {
-            if let thumb = det.thumbnail, let id = saved.id {
-                ImageStore.save(thumb, for: id)
+            if let thumb = det.thumbnail, let key = saved.imageKey {
+                ImageStore.save(thumb, forKey: key)
+                FirebaseService.shared.uploadDetectionImage(imageKey: key, image: thumb)
             }
             FirebaseService.shared.uploadDetection(saved, source: .video)
             savedDetections = db.fetchAllDetections()
@@ -507,12 +511,15 @@ final class ScanViewModel: ObservableObject {
 
     // Helpers
 
-    // Creates a new Detection record in SQLite with the current timestamp
+    // Creates a new Detection record in SQLite with the current timestamp.
+    // Generates a stable imageKey (UUID) so the image file survives
+    // sign-out/sign-in; the key is saved locally and synced to Firestore.
     private func insertDetection(label: String, confidence: Double) -> Detection? {
         let ts = ISO8601DateFormatter().string(from: Date())
-        let d = Detection(id: nil, vehicleLabel: label, confidence: confidence, timestamp: ts, synced: 0, audioSampleId: nil)
+        let key = UUID().uuidString
+        let d = Detection(id: nil, vehicleLabel: label, confidence: confidence, timestamp: ts, synced: 0, audioSampleId: nil, imageKey: key)
         guard let id = db.insertDetection(d) else { return nil }
-        return Detection(id: id, vehicleLabel: label, confidence: confidence, timestamp: ts, synced: 0, audioSampleId: nil)
+        return Detection(id: id, vehicleLabel: label, confidence: confidence, timestamp: ts, synced: 0, audioSampleId: nil, imageKey: key)
     }
 
     // Adds a badge to the display queue. Badges are shown one at a time

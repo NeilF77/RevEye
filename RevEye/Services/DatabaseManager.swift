@@ -56,7 +56,8 @@ class DatabaseManager {
             confidence     REAL    NOT NULL,
             timestamp      TEXT    NOT NULL,
             synced         INTEGER NOT NULL DEFAULT 0,
-            audioSampleId  INTEGER
+            audioSampleId  INTEGER,
+            imageKey       TEXT
         );
         """
         if sqlite3_exec(db, createDetections, nil, nil, nil) != SQLITE_OK {
@@ -89,6 +90,7 @@ class DatabaseManager {
 
         migrateVehicleModelColumnIfNeeded()
         migrateAudioSampleIdColumn()
+        migrateImageKeyColumn()
     }
 
     // Populates the badges table with all badge definitions on first run.
@@ -200,6 +202,28 @@ class DatabaseManager {
         sqlite3_exec(db, alter, nil, nil, nil)
     }
 
+    // Adds the imageKey column to detections if it doesn't exist yet.
+    // Stores a stable UUID used as the on-disk filename for each detection's
+    // image, so images survive sign-out/sign-in even though the SQLite id resets.
+    private func migrateImageKeyColumn() {
+        let pragma = "PRAGMA table_info(detections);"
+        var stmt: OpaquePointer?
+        var hasImageKey = false
+
+        if sqlite3_prepare_v2(db, pragma, -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let cName = sqlite3_column_text(stmt, 1) {
+                    if String(cString: cName) == "imageKey" { hasImageKey = true }
+                }
+            }
+        }
+        sqlite3_finalize(stmt)
+        guard !hasImageKey else { return }
+
+        let alter = "ALTER TABLE detections ADD COLUMN imageKey TEXT;"
+        sqlite3_exec(db, alter, nil, nil, nil)
+    }
+
     // Helper to get the last SQLite error message for debugging
     private var errorMessage: String { String(cString: sqlite3_errmsg(db)) }
 }
@@ -214,8 +238,8 @@ extension DatabaseManager {
         var newId: Int64?
         queue.sync {
             let sql = """
-            INSERT INTO detections (vehicleLabel, confidence, timestamp, synced, audioSampleId)
-            VALUES (?, ?, ?, ?, ?);
+            INSERT INTO detections (vehicleLabel, confidence, timestamp, synced, audioSampleId, imageKey)
+            VALUES (?, ?, ?, ?, ?, ?);
             """
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -231,12 +255,31 @@ extension DatabaseManager {
             } else {
                 sqlite3_bind_null(stmt, 5)
             }
+            if let key = detection.imageKey {
+                sqlite3_bind_text(stmt, 6, key, -1, SQLITE_TRANSIENT)
+            } else {
+                sqlite3_bind_null(stmt, 6)
+            }
             guard sqlite3_step(stmt) == SQLITE_DONE else {
                 print("DB error (insert step): \(errorMessage)"); return
             }
             newId = sqlite3_last_insert_rowid(db)
         }
         return newId
+    }
+
+    // Sets or updates the imageKey for an existing detection. Used when an
+    // image is saved for a detection that was inserted without one.
+    func setImageKey(_ key: String, for detectionId: Int64) {
+        queue.sync {
+            let sql = "UPDATE detections SET imageKey = ? WHERE id = ?;"
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_text (stmt, 1, key, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(stmt, 2, detectionId)
+            sqlite3_step(stmt)
+        }
     }
 
     // Fetches all detections, or just unsynced ones for the sync queue
@@ -293,7 +336,7 @@ extension DatabaseManager {
         queue.sync {
             let whereClause = condition.map { "WHERE \($0)" } ?? ""
             let sql = """
-            SELECT id, vehicleLabel, confidence, timestamp, synced, audioSampleId
+            SELECT id, vehicleLabel, confidence, timestamp, synced, audioSampleId, imageKey
             FROM detections \(whereClause)
             ORDER BY id DESC;
             """
@@ -305,13 +348,16 @@ extension DatabaseManager {
             while sqlite3_step(stmt) == SQLITE_ROW {
                 let audioId: Int64? = sqlite3_column_type(stmt, 5) != SQLITE_NULL
                     ? sqlite3_column_int64(stmt, 5) : nil
+                let imgKey: String? = sqlite3_column_type(stmt, 6) != SQLITE_NULL
+                    ? String(cString: sqlite3_column_text(stmt, 6)) : nil
                 results.append(Detection(
                     id:            sqlite3_column_int64(stmt, 0),
                     vehicleLabel:  String(cString: sqlite3_column_text(stmt, 1)),
                     confidence:    sqlite3_column_double(stmt, 2),
                     timestamp:     String(cString: sqlite3_column_text(stmt, 3)),
                     synced:        Int(sqlite3_column_int(stmt, 4)),
-                    audioSampleId: audioId
+                    audioSampleId: audioId,
+                    imageKey:      imgKey
                 ))
             }
         }

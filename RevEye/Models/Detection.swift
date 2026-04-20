@@ -13,4 +13,7 @@ struct Detection: Identifiable {
     var timestamp: String       // When the detection was made (ISO 8601 format)
     var synced: Int             // 0 = not yet uploaded to Firebase, 1 = synced
     var audioSampleId: Int64?   // Links to an audio sample if one was extracted from video
+    // Stable UUID used as the on-disk image filename. Synced to Firestore so
+    // the image persists across sign-out/sign-in (where the SQLite id changes).
+    var imageKey: String?
 }

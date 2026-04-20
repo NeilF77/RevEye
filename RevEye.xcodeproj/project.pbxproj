@@ -34,6 +34,7 @@
 		CE2BFAB62EC24F38004ED12D /* RevEye.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RevEye.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE2BFAC52EC24F3E004ED12D /* RevEyeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RevEyeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE2BFACF2EC24F3E004ED12D /* RevEyeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RevEyeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CE839ED22F96577D006F3525 /* RevEye.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = RevEye.xcodeproj; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -100,6 +101,13 @@
 				CE2BFAB62EC24F38004ED12D /* RevEye.app */,
 				CE2BFAC52EC24F3E004ED12D /* RevEyeTests.xctest */,
 				CE2BFACF2EC24F3E004ED12D /* RevEyeUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		CE839ED52F96577D006F3525 /* Products */ = {
+			isa = PBXGroup;
+			children = (
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -224,6 +232,12 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CE2BFAB72EC24F38004ED12D /* Products */;
 			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = CE839ED52F96577D006F3525 /* Products */;
+					ProjectRef = CE839ED22F96577D006F3525 /* RevEye.xcodeproj */;
+				},
+			);
 			projectRoot = "";
 			targets = (
 				CE2BFAB52EC24F38004ED12D /* RevEye */,

@@ -251,6 +251,9 @@ struct SettingsView: View {
     // out, sign back in, and try again.
     private func deleteAccount() {
         guard let user = Auth.auth().currentUser else { return }
+        // Capture the uid up front: after user.delete() the current user is
+        // gone, and ImageStore needs the uid to find this account's folder.
+        let uid = user.uid
 
         FirebaseService.shared.deleteAllCloudData { cloudError in
             if let cloudError {
@@ -265,7 +268,7 @@ struct SettingsView: View {
                 }
                 db.resetAllUserData()
                 BadgeService.shared.clearLocal()
-                ImageStore.deleteAll()
+                ImageStore.deleteAll(forUid: uid)
                 AuthService.shared.user = nil
             }
         }

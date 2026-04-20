@@ -187,9 +187,7 @@ struct DetectionView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
                 // Load the image and audio sample when the view appears
                 .onAppear {
-            if let id = detection.id {
-                image = ImageStore.load(for: id)
-            }
+            image = ImageStore.load(forKey: detection.imageKey)
             if let audioId = detection.audioSampleId {
                 audioSample = loadAudioSample(id: audioId)
             }
@@ -199,8 +197,9 @@ struct DetectionView: View {
         }
         .alert("Delete Detection?", isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
-                if let id = detection.id {
-                    ImageStore.delete(for: id)
+                ImageStore.delete(forKey: detection.imageKey)
+                if let key = detection.imageKey {
+                    FirebaseService.shared.deleteDetectionImage(imageKey: key)
                 }
                 onDelete()
             }

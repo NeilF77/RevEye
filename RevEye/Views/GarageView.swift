@@ -301,11 +301,11 @@ HStack(spacing: RE.s8) {
     // A single row in the detection list showing thumbnail, label, confidence, and date
     private func detRow(_ det: Detection) -> some View {
         let confColor = det.vehicleLabel == "Unknown Vehicle" ? REColors.textDim : REColors.displayConf(det.confidence)
-        let hasImage = det.id != nil && ImageStore.exists(for: det.id!)
+        let loadedImage = ImageStore.load(forKey: det.imageKey)
 
-        return 
+        return
 HStack(spacing: RE.s12) {
-            if hasImage, let id = det.id, let img = ImageStore.load(for: id) {
+            if let img = loadedImage {
                 Image(uiImage: img)
                     .resizable().scaledToFill()
                     .frame(width: 56, height: 42)
@@ -362,7 +362,7 @@ HStack(spacing: RE.s8) {
                 DetectionView(detection: det) {
                     if let id = det.id {
                         db.deleteDetection(id: id)
-                        ImageStore.delete(for: id)
+                        ImageStore.delete(forKey: det.imageKey)
                         detections = db.fetchAllDetections()
                     }
                 }
