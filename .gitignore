@@ -9,3 +9,5 @@ xcuserdata/
 .DS_Store
 
 RevEye/SupportingDocuments/MLTraining/
+RevEyeModel/
+*.pth
